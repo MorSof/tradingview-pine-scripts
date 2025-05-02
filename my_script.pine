@@ -1,5 +1,5 @@
 //@version=5
-strategy("Minervini SEPA Strategy (75% Min Size, Beautified, Dynamic Stop + Take Profits)", overlay=true, default_qty_type=strategy.cash)
+strategy("Minervini SEPA Strategy (75% Min Size, Beautified, Dynamic Stop + Take Profits + 50MA Filter)", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
 ma50_len = input(50, title="MA 50 Length")
@@ -11,6 +11,8 @@ trailing_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
 volume_mult = input(2.0, title="Volume Breakout Multiplier")
 weak_volume_mult = input(1.5, title="Weak Volume Multiplier")
 breakout_lookback = input(20, title="Base Breakout Lookback")
+close_to_ma_pct = input(5.0, title="Buffer % Near 50MA Before Exiting")  // now 5% default
+extra_ma_buffer_pct = input(0.5, title="Extra Stop Buffer % Below 50MA") // default: 0.5%
 
 account_size = input(10000, title="Account Size ($)")
 risk_percent = input(1.0, title="Risk per Trade (%)")
@@ -92,9 +94,20 @@ if (strategy.opentrades > 0)
     // Take 25% at R3
     strategy.exit("TP R3", from_entry="MinerviniLong", qty_percent=25, limit=r3)
 
+// === SMART TRAILING STOP (check proximity to 50MA + add buffer below) ===
+var float final_trail_stop = na
+if (strategy.position_size > 0)
+    distance_to_50 = trail_price - ma50
+    buffer_zone = close_to_ma_pct / 100.0 * close  // convert % to price buffer
+    use_50_as_stop = (distance_to_50 <= buffer_zone) and (ma50 > 0)
+    stop_at = use_50_as_stop ? (ma50 * (1 - extra_ma_buffer_pct / 100.0)) : trail_price
+    final_trail_stop := stop_at
+else
+    final_trail_stop := na
+
 // === TRAILING STOP EXIT ===
 if (strategy.position_size > 0)
-    strategy.exit("Trailing Stop", from_entry="MinerviniLong", stop=math.max(stop_loss_price, trail_price))
+    strategy.exit("Trailing Stop", from_entry="MinerviniLong", stop=math.max(stop_loss_price, final_trail_stop))
 
 // === WEAK SIGNAL (ONLY if NO strong signal) ===
 weak_signal = trend_ok and breakout and (volume > (avg_vol * weak_volume_mult)) and in_date_range and not enter_long
@@ -111,7 +124,7 @@ plot(ma150, color=color.new(color.blue, 0), title="150 SMA", linewidth=2)
 plot(ma200, color=color.new(color.red, 0), title="200 SMA", linewidth=2)
 
 // === TRAILING STOP PLOT ===
-plot(trail_price, color=color.purple, title="Trailing Stop", style=plot.style_linebr, linewidth=2)
+plot(final_trail_stop, color=color.purple, title="Final Trailing Stop (Smart)", style=plot.style_linebr, linewidth=2)
 
 // === PLOT R LEVELS ===
 plot(r1, title="R1", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
