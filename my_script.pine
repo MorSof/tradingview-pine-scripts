@@ -1,5 +1,5 @@
 //@version=5
-strategy("Minervini SEPA Strategy (75% Min Size, Beautified, Dynamic Trailing Stop + R Levels)", overlay=true, default_qty_type=strategy.cash)
+strategy("Minervini SEPA Strategy (75% Min Size, Beautified, Dynamic Stop + Take Profits)", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
 ma50_len = input(50, title="MA 50 Length")
@@ -35,7 +35,7 @@ high_vol = volume > (avg_vol * volume_mult)
 
 // === STOP LOSS ===
 stop_loss_price = close - (atr * atr_mult)
-stop_loss_distance = math.max(close - stop_loss_price, syminfo.mintick)  // Added safety guard
+stop_loss_distance = math.max(close - stop_loss_price, syminfo.mintick)
 
 // === BACKTEST TIME FILTER ===
 in_date_range = (year(time) >= (year(timenow) - 3))
@@ -64,29 +64,9 @@ else
 // === ENTRY CONDITION ===
 enter_long = trend_ok and breakout and high_vol and in_date_range
 
-// === STRATEGY ===
+// === STRATEGY ENTRY ===
 if (enter_long)
     strategy.entry("MinerviniLong", strategy.long, qty=final_position_size)
-
-if (strategy.position_size > 0)
-    strategy.exit("Exit", "MinerviniLong", stop=math.max(stop_loss_price, trail_price))
-
-// === WEAK SIGNAL (ONLY if NO strong signal) ===
-weak_signal = trend_ok and breakout and (volume > (avg_vol * weak_volume_mult)) and in_date_range and not enter_long
-plotshape(weak_signal, style=shape.diamond, location=location.abovebar, size=size.small, 
-     color=color.new(color.orange, 20), title="Weak Breakout Signal", text="Watch")
-
-// === PLOT ENTRY SIGNAL (on breakout day) ===
-plotshape(enter_long, style=shape.triangleup, location=location.belowbar, size=size.normal, 
-     color=color.new(color.lime, 0), title="Strong Breakout Entry", text="Strong")
-
-// === PLOTTING MOVING AVERAGES ===
-plot(ma50, color=color.new(color.green, 0), title="50 SMA", linewidth=2)
-plot(ma150, color=color.new(color.blue, 0), title="150 SMA", linewidth=2)
-plot(ma200, color=color.new(color.red, 0), title="200 SMA", linewidth=2)
-
-// === TRAILING STOP PLOT ===
-plot(trail_price, color=color.purple, title="Trailing Stop", style=plot.style_linebr, linewidth=2, trackprice=false, offset=0)
 
 // === R LEVELS (R1, R2, R3) ===
 var float r1 = na
@@ -103,6 +83,37 @@ else
     r2 := na
     r3 := na
 
+// === TAKE PROFITS ===
+if (strategy.opentrades > 0)
+    // Take 25% at R1
+    strategy.exit("TP R1", from_entry="MinerviniLong", qty_percent=25, limit=r1)
+    // Take 25% at R2
+    strategy.exit("TP R2", from_entry="MinerviniLong", qty_percent=25, limit=r2)
+    // Take 25% at R3
+    strategy.exit("TP R3", from_entry="MinerviniLong", qty_percent=25, limit=r3)
+
+// === TRAILING STOP EXIT ===
+if (strategy.position_size > 0)
+    strategy.exit("Trailing Stop", from_entry="MinerviniLong", stop=math.max(stop_loss_price, trail_price))
+
+// === WEAK SIGNAL (ONLY if NO strong signal) ===
+weak_signal = trend_ok and breakout and (volume > (avg_vol * weak_volume_mult)) and in_date_range and not enter_long
+plotshape(weak_signal, style=shape.diamond, location=location.abovebar, size=size.small, 
+     color=color.new(color.orange, 20), title="Weak Breakout Signal", text="Watch")
+
+// === PLOT ENTRY SIGNAL (on breakout day) ===
+plotshape(enter_long, style=shape.triangleup, location=location.belowbar, size=size.normal, 
+     color=color.new(color.lime, 0), title="Strong Breakout Entry", text="Strong")
+
+// === PLOTTING MOVING AVERAGES ===
+plot(ma50, color=color.new(color.green, 0), title="50 SMA", linewidth=2)
+plot(ma150, color=color.new(color.blue, 0), title="150 SMA", linewidth=2)
+plot(ma200, color=color.new(color.red, 0), title="200 SMA", linewidth=2)
+
+// === TRAILING STOP PLOT ===
+plot(trail_price, color=color.purple, title="Trailing Stop", style=plot.style_linebr, linewidth=2)
+
+// === PLOT R LEVELS ===
 plot(r1, title="R1", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
 plot(r2, title="R2", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
 plot(r3, title="R3", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
