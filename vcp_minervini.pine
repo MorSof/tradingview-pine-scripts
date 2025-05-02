@@ -1,0 +1,98 @@
+//@version=4
+strategy("Improved Minervini-Inspired Strategy (Risk-Managed)", overlay=true,
+     default_qty_type=strategy.cash, initial_capital=10000, currency=currency.USD)
+
+// === INPUTS ===
+len50 = input(50, minval=1, title="MA 50 Length")
+len150 = input(150, minval=1, title="MA 150 Length")
+len200 = input(200, minval=1, title="MA 200 Length")
+src = input(close, title="Source")
+offset = input(0, title="Offset", type=input.integer, minval=-500, maxval=500)
+
+takePer = input(10.0, title='Take Profit %') / 100
+atr_mult = input(1.5, title="ATR Multiplier for Stop Loss")
+vol_mult = input(1.5, title="Volume Breakout Multiplier")
+spy_ticker = input("SPY", title="Market Filter Ticker (e.g., SPY)")
+
+// === RISK MANAGEMENT INPUTS ===
+account_size = input(10000, title="Account Size ($)")
+risk_perc = input(1.0, title="Risk per Trade (%)") / 100
+
+// === MOVING AVERAGES ===
+out50 = sma(src, len50)
+out150 = sma(src, len150)
+out200 = sma(src, len200)
+
+plot(out50, color=color.blue, title="MA 50", offset=offset)
+plot(out150, color=color.green, title="MA 150", offset=offset)
+plot(out200, color=color.red, title="MA 200", offset=offset)
+
+// === TREND TEMPLATE ===
+bullishTrend = (close > out50) and (out50 > out150) and (out150 > out200) and
+               (out200 > out200[1]) and (out200 > out200[20]) and (out50 >= out50[1])
+
+// === VOLATILITY SETUP ===
+atr_length = 3
+lookback = 150
+percentile1 = 30
+percentile2 = 40
+closerange = 4
+
+// Calculate ATR-based tightness
+range1 = highest(high, atr_length) - lowest(low, atr_length)
+atrp1 = (range1 / highest(high, atr_length)) * 100
+per1 = percentrank(atrp1, lookback)
+
+range2 = highest(close, atr_length) - lowest(close, atr_length)
+atrp2 = (range2 / highest(close, atr_length)) * 100
+per2 = percentrank(atrp2, lookback)
+
+setting1 = (per1 <= percentile2) and (per1 > percentile1)
+rangepivot = (per1 <= percentile1) and (atrp1 <= 10)
+closepivot = (atrp2 <= closerange)
+pivot = rangepivot or closepivot
+
+// === MARKET FILTER (SPY trend) ===
+spy = security(spy_ticker, "D", close)
+spy_sma50 = security(spy_ticker, "D", sma(close, 50))
+marketUptrend = spy > spy_sma50
+
+// === VOLUME CONFIRMATION ===
+vol_ma = sma(volume, 20)
+volumeBreakout = volume > (vol_ma * vol_mult)
+
+// === BACKGROUND COLORS ===
+bgcolor(setting1 and bullishTrend ? color.yellow : na, transp=70)
+bgcolor(rangepivot and bullishTrend ? color.blue : na, transp=70)
+bgcolor(closepivot and bullishTrend ? color.red : na, transp=70)
+
+// === ENTRY LOGIC ===
+high_lookback = 3
+breakout_level = highest(high, high_lookback)
+longCondition = bullishTrend and pivot and marketUptrend and volumeBreakout
+
+// === DYNAMIC POSITION SIZE CALCULATION ===
+entry_price = breakout_level[1]
+stop_price = entry_price - (atr(14) * atr_mult)
+risk_dollar = account_size * risk_perc
+risk_per_share = entry_price - stop_price
+position_size = (risk_per_share > 0) ? (risk_dollar / risk_per_share) : na
+
+// === ENTRY ORDER ===
+if (longCondition)
+    strategy.entry("Long", strategy.long, stop=entry_price, qty=position_size)
+
+// === ATR-BASED STOP LOSS & TAKE PROFITS ===
+atr_stop = strategy.position_avg_price - (atr(14) * atr_mult)
+tp1 = strategy.position_avg_price * (1 + takePer)
+tp2 = strategy.position_avg_price * (1 + takePer * 2)
+tp3 = strategy.position_avg_price * (1 + takePer * 3)
+
+// Scale out progressively
+if strategy.position_size > 0
+    strategy.exit(id="TP1", qty_percent=25, stop=atr_stop, limit=tp1)
+if strategy.position_size > 0
+    strategy.exit(id="TP2", qty_percent=50, stop=atr_stop, limit=tp2)
+if strategy.position_size > 0
+    strategy.exit(id="TP3", qty_percent=100, stop=atr_stop, limit=tp3)
+
