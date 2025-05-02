@@ -1,0 +1,72 @@
+//@version=5
+strategy("Momentum Swing Trader (Full Position Hold, 25% Equity)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=25)
+
+// === INPUTS ===
+len50 = input(50, title="MA 50 Length")
+len150 = input(150, title="MA 150 Length")
+len200 = input(200, title="MA 200 Length")
+atrLength = input(14, title="ATR Length")
+atrMultiplier = input(1.5, title="ATR Stop Multiplier")
+volumeMultiplier = input(1.5, title="Breakout Volume Multiplier")
+tightRangePct = input(0.1, title="Max Base Tightness (10%)")
+lookback = input(20, title="Breakout Lookback Period")
+trailMultiplier = input(2.5, title="Trailing Stop ATR Multiplier")
+reentryCooldown = input(10, title="Bars Between Entries (Cooldown)")
+
+// === MOVING AVERAGES ===
+ma50 = ta.sma(close, len50)
+ma150 = ta.sma(close, len150)
+ma200 = ta.sma(close, len200)
+
+// === ATR ===
+atr = ta.atr(atrLength)
+
+// === TREND CONDITION ===
+trend_ok = close > ma50 and ma50 > ma150 and ma150 > ma200
+
+// === BREAKOUT CONDITION ===
+price_breakout = close > ta.highest(high, lookback)[1]
+
+// === VOLUME CONDITION ===
+avg_vol = ta.sma(volume, 20)
+vol_breakout = volume > avg_vol * volumeMultiplier
+
+// === VCP (tight range) ===
+baseHigh = ta.highest(high, 10)
+baseLow = ta.lowest(low, 10)
+baseTightness = (baseHigh - baseLow) / close
+tight_base = baseTightness < tightRangePct
+
+// === LOW VOLUME BASE (before breakout) ===
+baseAvgVol = ta.sma(volume, 10)
+low_vol_base = baseAvgVol < avg_vol
+
+// === TIME SINCE LAST ENTRY ===
+var float last_entry_bar = na
+bars_since_entry = na(last_entry_bar) ? na : bar_index - last_entry_bar
+
+// === ENTRY CONDITION ===
+enter_long = trend_ok and price_breakout and vol_breakout and (tight_base or low_vol_base) and (na(bars_since_entry) or bars_since_entry >= reentryCooldown)
+
+// === RISK MANAGEMENT ===
+if (enter_long)
+    stop_loss = close - (atr * atrMultiplier)
+    strategy.entry("Long", strategy.long)
+    last_entry_bar := bar_index
+    // Full position trails only (no partial exit now)
+    trail_offset = atr * trailMultiplier
+    strategy.exit("Trail Exit", from_entry="Long", stop=stop_loss, trail_points=trail_offset / syminfo.mintick, trail_offset=trail_offset / syminfo.mintick)
+
+// === PLOTS ===
+plot(ma50, color=color.blue)
+plot(ma150, color=color.orange)
+plot(ma200, color=color.red)
+
+// === VISUAL SIGNALS ===
+if (enter_long)
+    label.new(bar_index, low, "Entry", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.small)
+
+if (strategy.closedtrades > 0)
+    last_exit = strategy.closedtrades.exit_bar_index(strategy.closedtrades - 1)
+    if (bar_index == last_exit)
+        label.new(bar_index, high, "Exit", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
