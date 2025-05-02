@@ -1,5 +1,5 @@
 //@version=5
-strategy("Minervini SEPA Strategy (75% Min Size, Beautified, Dynamic Stop + Take Profits + 50MA Filter)", overlay=true, default_qty_type=strategy.cash)
+strategy("Minervini SEPA Strategy (75% Min Size, Final Fix - Clean Working Exits)", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
 ma50_len = input(50, title="MA 50 Length")
@@ -11,8 +11,8 @@ trailing_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
 volume_mult = input(2.0, title="Volume Breakout Multiplier")
 weak_volume_mult = input(1.5, title="Weak Volume Multiplier")
 breakout_lookback = input(20, title="Base Breakout Lookback")
-close_to_ma_pct = input(5.0, title="Buffer % Near 50MA Before Exiting")  // now 5% default
-extra_ma_buffer_pct = input(0.5, title="Extra Stop Buffer % Below 50MA") // default: 0.5%
+close_to_ma_pct = input(5.0, title="Buffer % Near 50MA Before Exiting")
+extra_ma_buffer_pct = input(0.5, title="Extra Stop Buffer % Below 50MA")
 
 account_size = input(10000, title="Account Size ($)")
 risk_percent = input(1.0, title="Risk per Trade (%)")
@@ -44,10 +44,9 @@ in_date_range = (year(time) >= (year(timenow) - 3))
 
 // === POSITION SIZE CALCULATION ===
 risk_dollars = (account_size * (risk_percent / 100))
-position_size_risk_based = risk_dollars / stop_loss_distance  // qty in shares
-position_size_minimum = (account_size * (min_position_percent / 100)) / close  // qty in shares
+position_size_risk_based = risk_dollars / stop_loss_distance
+position_size_minimum = (account_size * (min_position_percent / 100)) / close
 
-// Final position size: max between risk-based and minimum size
 final_position_size = math.max(position_size_risk_based, position_size_minimum)
 
 // === DYNAMIC TRAILING STOP ===
@@ -66,11 +65,10 @@ else
 // === ENTRY CONDITION ===
 enter_long = trend_ok and breakout and high_vol and in_date_range
 
-// === STRATEGY ENTRY ===
 if (enter_long)
     strategy.entry("MinerviniLong", strategy.long, qty=final_position_size)
 
-// === R LEVELS (R1, R2, R3) ===
+// === R LEVELS ===
 var float r1 = na
 var float r2 = na
 var float r3 = na
@@ -85,36 +83,33 @@ else
     r2 := na
     r3 := na
 
-// === TAKE PROFITS ===
-if (strategy.opentrades > 0)
-    // Take 25% at R1
-    strategy.exit("TP R1", from_entry="MinerviniLong", qty_percent=25, limit=r1)
-    // Take 25% at R2
-    strategy.exit("TP R2", from_entry="MinerviniLong", qty_percent=25, limit=r2)
-    // Take 25% at R3
-    strategy.exit("TP R3", from_entry="MinerviniLong", qty_percent=25, limit=r3)
+// === SET UP PARTIAL EXITS WITH LIMIT ORDERS ===
+if (strategy.position_size > 0)
+    strategy.exit("R1 Exit", from_entry="MinerviniLong", qty_percent=25, limit=r1)
+    strategy.exit("R2 Exit", from_entry="MinerviniLong", qty_percent=25, limit=r2)
+    strategy.exit("R3 Exit", from_entry="MinerviniLong", qty_percent=25, limit=r3)
 
 // === SMART TRAILING STOP (check proximity to 50MA + add buffer below) ===
 var float final_trail_stop = na
 if (strategy.position_size > 0)
     distance_to_50 = trail_price - ma50
-    buffer_zone = close_to_ma_pct / 100.0 * close  // convert % to price buffer
+    buffer_zone = close_to_ma_pct / 100.0 * close
     use_50_as_stop = (distance_to_50 <= buffer_zone) and (ma50 > 0)
     stop_at = use_50_as_stop ? (ma50 * (1 - extra_ma_buffer_pct / 100.0)) : trail_price
     final_trail_stop := stop_at
 else
     final_trail_stop := na
 
-// === TRAILING STOP EXIT ===
+// === TRAILING STOP ===
 if (strategy.position_size > 0)
-    strategy.exit("Trailing Stop", from_entry="MinerviniLong", stop=math.max(stop_loss_price, final_trail_stop))
+    strategy.exit("Trailing Stop", from_entry="MinerviniLong", stop=final_trail_stop)
 
-// === WEAK SIGNAL (ONLY if NO strong signal) ===
+// === WEAK SIGNAL ===
 weak_signal = trend_ok and breakout and (volume > (avg_vol * weak_volume_mult)) and in_date_range and not enter_long
 plotshape(weak_signal, style=shape.diamond, location=location.abovebar, size=size.small, 
      color=color.new(color.orange, 20), title="Weak Breakout Signal", text="Watch")
 
-// === PLOT ENTRY SIGNAL (on breakout day) ===
+// === PLOT ENTRY SIGNAL ===
 plotshape(enter_long, style=shape.triangleup, location=location.belowbar, size=size.normal, 
      color=color.new(color.lime, 0), title="Strong Breakout Entry", text="Strong")
 
