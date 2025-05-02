@@ -1,5 +1,5 @@
 //@version=5
-strategy("Minervini SEPA Strategy (75% Min Size, Beautified)", overlay=true, default_qty_type=strategy.cash)
+strategy("Minervini SEPA Strategy (75% Min Size, Beautified, Dynamic Trailing Stop + R Levels)", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
 ma50_len = input(50, title="MA 50 Length")
@@ -7,7 +7,7 @@ ma150_len = input(150, title="MA 150 Length")
 ma200_len = input(200, title="MA 200 Length")
 atr_len = input(14, title="ATR Length")
 atr_mult = input(1.5, title="ATR Stop Multiplier")
-trailing_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier")
+trailing_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
 volume_mult = input(2.0, title="Volume Breakout Multiplier")
 weak_volume_mult = input(1.5, title="Weak Volume Multiplier")
 breakout_lookback = input(20, title="Base Breakout Lookback")
@@ -35,7 +35,7 @@ high_vol = volume > (avg_vol * volume_mult)
 
 // === STOP LOSS ===
 stop_loss_price = close - (atr * atr_mult)
-stop_loss_distance = close - stop_loss_price
+stop_loss_distance = math.max(close - stop_loss_price, syminfo.mintick)  // Added safety guard
 
 // === BACKTEST TIME FILTER ===
 in_date_range = (year(time) >= (year(timenow) - 3))
@@ -48,11 +48,16 @@ position_size_minimum = (account_size * (min_position_percent / 100)) / close  /
 // Final position size: max between risk-based and minimum size
 final_position_size = math.max(position_size_risk_based, position_size_minimum)
 
-// === TRAILING STOP ===
+// === DYNAMIC TRAILING STOP ===
 var float trail_price = na
 if (strategy.position_size > 0)
     highest_in_trade = ta.highest(high, bar_index - strategy.opentrades.entry_bar_index(0) + 1)
-    trail_price := highest_in_trade - (atr * trailing_atr_mult)
+    gain_from_entry = (highest_in_trade - strategy.opentrades.entry_price(0)) / strategy.opentrades.entry_price(0)
+    trail_multiplier_dynamic =
+         gain_from_entry > 0.3 ? trailing_atr_mult * 2.0 :
+         gain_from_entry > 0.15 ? trailing_atr_mult * 1.5 :
+         trailing_atr_mult
+    trail_price := highest_in_trade - (atr * trail_multiplier_dynamic)
 else
     trail_price := na
 
@@ -67,7 +72,7 @@ if (strategy.position_size > 0)
     strategy.exit("Exit", "MinerviniLong", stop=math.max(stop_loss_price, trail_price))
 
 // === WEAK SIGNAL (ONLY if NO strong signal) ===
-weak_signal = (breakout and (volume > (avg_vol * weak_volume_mult)) and not enter_long)
+weak_signal = trend_ok and breakout and (volume > (avg_vol * weak_volume_mult)) and in_date_range and not enter_long
 plotshape(weak_signal, style=shape.diamond, location=location.abovebar, size=size.small, 
      color=color.new(color.orange, 20), title="Weak Breakout Signal", text="Watch")
 
@@ -82,3 +87,22 @@ plot(ma200, color=color.new(color.red, 0), title="200 SMA", linewidth=2)
 
 // === TRAILING STOP PLOT ===
 plot(trail_price, color=color.purple, title="Trailing Stop", style=plot.style_linebr, linewidth=2, trackprice=false, offset=0)
+
+// === R LEVELS (R1, R2, R3) ===
+var float r1 = na
+var float r2 = na
+var float r3 = na
+
+if (strategy.position_size > 0)
+    entry_price = strategy.opentrades.entry_price(0)
+    r1 := entry_price + stop_loss_distance * 1
+    r2 := entry_price + stop_loss_distance * 2
+    r3 := entry_price + stop_loss_distance * 3
+else
+    r1 := na
+    r2 := na
+    r3 := na
+
+plot(r1, title="R1", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
+plot(r2, title="R2", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
+plot(r3, title="R3", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
