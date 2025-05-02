@@ -1,5 +1,5 @@
 //@version=4
-strategy("Improved Minervini-Inspired Strategy (Risk-Managed)", overlay=true,
+strategy("Minervini-Inspired Strategy (Enhanced, No Market Filter)", overlay=true,
      default_qty_type=strategy.cash, initial_capital=10000, currency=currency.USD)
 
 // === INPUTS ===
@@ -12,11 +12,14 @@ offset = input(0, title="Offset", type=input.integer, minval=-500, maxval=500)
 takePer = input(10.0, title='Take Profit %') / 100
 atr_mult = input(1.5, title="ATR Multiplier for Stop Loss")
 vol_mult = input(1.5, title="Volume Breakout Multiplier")
-spy_ticker = input("SPY", title="Market Filter Ticker (e.g., SPY)")
 
 // === RISK MANAGEMENT INPUTS ===
 account_size = input(10000, title="Account Size ($)")
 risk_perc = input(1.0, title="Risk per Trade (%)") / 100
+max_alloc_perc = 0.25  // 25% of portfolio max allocation per trade
+
+// === VOLUME ENHANCEMENT INPUTS ===
+vol_lookback = input(10, title="Volume Lookback (Highest of N Bars)")
 
 // === MOVING AVERAGES ===
 out50 = sma(src, len50)
@@ -52,14 +55,11 @@ rangepivot = (per1 <= percentile1) and (atrp1 <= 10)
 closepivot = (atrp2 <= closerange)
 pivot = rangepivot or closepivot
 
-// === MARKET FILTER (SPY trend) ===
-spy = security(spy_ticker, "D", close)
-spy_sma50 = security(spy_ticker, "D", sma(close, 50))
-marketUptrend = spy > spy_sma50
-
-// === VOLUME CONFIRMATION ===
+// === VOLUME CONFIRMATION (ENHANCED) ===
 vol_ma = sma(volume, 20)
 volumeBreakout = volume > (vol_ma * vol_mult)
+volumeStrong = volume == highest(volume, vol_lookback)
+volumeOK = volumeBreakout and volumeStrong
 
 // === BACKGROUND COLORS ===
 bgcolor(setting1 and bullishTrend ? color.yellow : na, transp=70)
@@ -69,30 +69,35 @@ bgcolor(closepivot and bullishTrend ? color.red : na, transp=70)
 // === ENTRY LOGIC ===
 high_lookback = 3
 breakout_level = highest(high, high_lookback)
-longCondition = bullishTrend and pivot and marketUptrend and volumeBreakout
+// Removed marketUptrend check here 👇
+longCondition = bullishTrend and pivot and volumeOK
 
-// === DYNAMIC POSITION SIZE CALCULATION ===
+// === DYNAMIC POSITION SIZE CALCULATION WITH 25% CAP ===
 entry_price = breakout_level[1]
 stop_price = entry_price - (atr(14) * atr_mult)
 risk_dollar = account_size * risk_perc
 risk_per_share = entry_price - stop_price
-position_size = (risk_per_share > 0) ? (risk_dollar / risk_per_share) : na
+
+float final_position_size = na  // <-- explicitly declared as float
+if (risk_per_share > 0)
+    raw_position_size = risk_dollar / risk_per_share
+    max_position_value = account_size * max_alloc_perc
+    max_position_size = max_position_value / entry_price
+    final_position_size := min(raw_position_size, max_position_size)
 
 // === ENTRY ORDER ===
 if (longCondition)
-    strategy.entry("Long", strategy.long, stop=entry_price, qty=position_size)
+    strategy.entry("Long", strategy.long, stop=entry_price, qty=final_position_size)
 
-// === ATR-BASED STOP LOSS & TAKE PROFITS ===
+// === ATR-BASED STOP LOSS & TAKE PROFITS + TRAILING ===
 atr_stop = strategy.position_avg_price - (atr(14) * atr_mult)
 tp1 = strategy.position_avg_price * (1 + takePer)
-tp2 = strategy.position_avg_price * (1 + takePer * 2)
-tp3 = strategy.position_avg_price * (1 + takePer * 3)
 
-// Scale out progressively
+// 1️⃣ TP1: Exit 25% at +10%
 if strategy.position_size > 0
     strategy.exit(id="TP1", qty_percent=25, stop=atr_stop, limit=tp1)
+
+// 2️⃣ Trailing Stop: Trail the rest with ATR-based stop
 if strategy.position_size > 0
-    strategy.exit(id="TP2", qty_percent=50, stop=atr_stop, limit=tp2)
-if strategy.position_size > 0
-    strategy.exit(id="TP3", qty_percent=100, stop=atr_stop, limit=tp3)
+    strategy.exit(id="TrailingExit", qty_percent=100, trail_points=atr(14)*1.5, trail_offset=atr(14)*1.5)
 
