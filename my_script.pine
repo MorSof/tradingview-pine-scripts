@@ -1,72 +1,84 @@
 //@version=5
-strategy("Momentum Swing Trader (Full Position Hold, 25% Equity)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=25)
+strategy("Minervini SEPA Strategy (75% Min Size, Beautified)", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
-len50 = input(50, title="MA 50 Length")
-len150 = input(150, title="MA 150 Length")
-len200 = input(200, title="MA 200 Length")
-atrLength = input(14, title="ATR Length")
-atrMultiplier = input(1.5, title="ATR Stop Multiplier")
-volumeMultiplier = input(1.5, title="Breakout Volume Multiplier")
-tightRangePct = input(0.1, title="Max Base Tightness (10%)")
-lookback = input(20, title="Breakout Lookback Period")
-trailMultiplier = input(2.5, title="Trailing Stop ATR Multiplier")
-reentryCooldown = input(10, title="Bars Between Entries (Cooldown)")
+ma50_len = input(50, title="MA 50 Length")
+ma150_len = input(150, title="MA 150 Length")
+ma200_len = input(200, title="MA 200 Length")
+atr_len = input(14, title="ATR Length")
+atr_mult = input(1.5, title="ATR Stop Multiplier")
+trailing_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier")
+volume_mult = input(2.0, title="Volume Breakout Multiplier")
+weak_volume_mult = input(1.5, title="Weak Volume Multiplier")
+breakout_lookback = input(20, title="Base Breakout Lookback")
+
+account_size = input(10000, title="Account Size ($)")
+risk_percent = input(1.0, title="Risk per Trade (%)")
+min_position_percent = input(75.0, title="Minimum Position % of Account")
 
 // === MOVING AVERAGES ===
-ma50 = ta.sma(close, len50)
-ma150 = ta.sma(close, len150)
-ma200 = ta.sma(close, len200)
+ma50 = ta.sma(close, ma50_len)
+ma150 = ta.sma(close, ma150_len)
+ma200 = ta.sma(close, ma200_len)
 
-// === ATR ===
-atr = ta.atr(atrLength)
+// === ATR & VOLUME ===
+atr = ta.atr(atr_len)
+highest_high = ta.highest(high, breakout_lookback)
+avg_vol = ta.sma(volume, 50)
 
-// === TREND CONDITION ===
-trend_ok = close > ma50 and ma50 > ma150 and ma150 > ma200
+// === TREND CONDITIONS ===
+trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
 
-// === BREAKOUT CONDITION ===
-price_breakout = close > ta.highest(high, lookback)[1]
+// === BREAKOUT & VOLUME ===
+breakout = close > highest_high[1]
+high_vol = volume > (avg_vol * volume_mult)
 
-// === VOLUME CONDITION ===
-avg_vol = ta.sma(volume, 20)
-vol_breakout = volume > avg_vol * volumeMultiplier
+// === STOP LOSS ===
+stop_loss_price = close - (atr * atr_mult)
+stop_loss_distance = close - stop_loss_price
 
-// === VCP (tight range) ===
-baseHigh = ta.highest(high, 10)
-baseLow = ta.lowest(low, 10)
-baseTightness = (baseHigh - baseLow) / close
-tight_base = baseTightness < tightRangePct
+// === BACKTEST TIME FILTER ===
+in_date_range = (year(time) >= (year(timenow) - 3))
 
-// === LOW VOLUME BASE (before breakout) ===
-baseAvgVol = ta.sma(volume, 10)
-low_vol_base = baseAvgVol < avg_vol
+// === POSITION SIZE CALCULATION ===
+risk_dollars = (account_size * (risk_percent / 100))
+position_size_risk_based = risk_dollars / stop_loss_distance  // qty in shares
+position_size_minimum = (account_size * (min_position_percent / 100)) / close  // qty in shares
 
-// === TIME SINCE LAST ENTRY ===
-var float last_entry_bar = na
-bars_since_entry = na(last_entry_bar) ? na : bar_index - last_entry_bar
+// Final position size: max between risk-based and minimum size
+final_position_size = math.max(position_size_risk_based, position_size_minimum)
+
+// === TRAILING STOP ===
+var float trail_price = na
+if (strategy.position_size > 0)
+    highest_in_trade = ta.highest(high, bar_index - strategy.opentrades.entry_bar_index(0) + 1)
+    trail_price := highest_in_trade - (atr * trailing_atr_mult)
+else
+    trail_price := na
 
 // === ENTRY CONDITION ===
-enter_long = trend_ok and price_breakout and vol_breakout and (tight_base or low_vol_base) and (na(bars_since_entry) or bars_since_entry >= reentryCooldown)
+enter_long = trend_ok and breakout and high_vol and in_date_range
 
-// === RISK MANAGEMENT ===
+// === STRATEGY ===
 if (enter_long)
-    stop_loss = close - (atr * atrMultiplier)
-    strategy.entry("Long", strategy.long)
-    last_entry_bar := bar_index
-    // Full position trails only (no partial exit now)
-    trail_offset = atr * trailMultiplier
-    strategy.exit("Trail Exit", from_entry="Long", stop=stop_loss, trail_points=trail_offset / syminfo.mintick, trail_offset=trail_offset / syminfo.mintick)
+    strategy.entry("MinerviniLong", strategy.long, qty=final_position_size)
 
-// === PLOTS ===
-plot(ma50, color=color.blue)
-plot(ma150, color=color.orange)
-plot(ma200, color=color.red)
+if (strategy.position_size > 0)
+    strategy.exit("Exit", "MinerviniLong", stop=math.max(stop_loss_price, trail_price))
 
-// === VISUAL SIGNALS ===
-if (enter_long)
-    label.new(bar_index, low, "Entry", style=label.style_label_up, color=color.green, textcolor=color.white, size=size.small)
+// === WEAK SIGNAL (ONLY if NO strong signal) ===
+weak_signal = (breakout and (volume > (avg_vol * weak_volume_mult)) and not enter_long)
+plotshape(weak_signal, style=shape.diamond, location=location.abovebar, size=size.small, 
+     color=color.new(color.orange, 20), title="Weak Breakout Signal", text="Watch")
 
-if (strategy.closedtrades > 0)
-    last_exit = strategy.closedtrades.exit_bar_index(strategy.closedtrades - 1)
-    if (bar_index == last_exit)
-        label.new(bar_index, high, "Exit", style=label.style_label_down, color=color.red, textcolor=color.white, size=size.small)
+// === PLOT ENTRY SIGNAL (on breakout day) ===
+plotshape(enter_long, style=shape.triangleup, location=location.belowbar, size=size.normal, 
+     color=color.new(color.lime, 0), title="Strong Breakout Entry", text="Strong")
+
+// === PLOTTING MOVING AVERAGES ===
+plot(ma50, color=color.new(color.green, 0), title="50 SMA", linewidth=2)
+plot(ma150, color=color.new(color.blue, 0), title="150 SMA", linewidth=2)
+plot(ma200, color=color.new(color.red, 0), title="200 SMA", linewidth=2)
+
+// === TRAILING STOP PLOT ===
+plot(trail_price, color=color.purple, title="Trailing Stop", style=plot.style_linebr, linewidth=2, trackprice=false, offset=0)
