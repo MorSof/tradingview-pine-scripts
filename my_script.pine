@@ -1,5 +1,5 @@
 //@version=5
-strategy("Minervini SEPA Strategy (75% Min Size, Final Fix - Clean Working Exits)", overlay=true, default_qty_type=strategy.cash)
+strategy("Minervini SEPA Strategy (75% Min Size, Full Clean Exit)", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
 ma50_len = input(50, title="MA 50 Length")
@@ -83,11 +83,21 @@ else
     r2 := na
     r3 := na
 
-// === SET UP PARTIAL EXITS WITH LIMIT ORDERS ===
+// === BOOLEANS: Track if R1/R2/R3 were hit ===
+var bool r1_hit = false
+var bool r2_hit = false
+var bool r3_hit = false
+
 if (strategy.position_size > 0)
-    strategy.exit("R1 Exit", from_entry="MinerviniLong", qty_percent=25, limit=r1)
-    strategy.exit("R2 Exit", from_entry="MinerviniLong", qty_percent=25, limit=r2)
-    strategy.exit("R3 Exit", from_entry="MinerviniLong", qty_percent=25, limit=r3)
+    if (not r1_hit and high >= r1)
+        strategy.close("MinerviniLong", qty_percent=25)
+        r1_hit := true
+    if (not r2_hit and high >= r2)
+        strategy.close("MinerviniLong", qty_percent=25)
+        r2_hit := true
+    if (not r3_hit and high >= r3)
+        strategy.close("MinerviniLong", qty_percent=25)
+        r3_hit := true
 
 // === SMART TRAILING STOP (check proximity to 50MA + add buffer below) ===
 var float final_trail_stop = na
@@ -100,9 +110,18 @@ if (strategy.position_size > 0)
 else
     final_trail_stop := na
 
-// === TRAILING STOP ===
+// === TRAILING STOP - Close 100% + clean up ===
 if (strategy.position_size > 0)
-    strategy.exit("Trailing Stop", from_entry="MinerviniLong", stop=final_trail_stop)
+    stop_triggered = (low <= final_trail_stop)
+    if (stop_triggered)
+        strategy.close("MinerviniLong")
+        strategy.cancel("Trailing Stop")  // Clean up pending exit orders (if any)
+
+// === RESET BOOLEANS WHEN POSITION CLOSED ===
+if (strategy.position_size == 0)
+    r1_hit := false
+    r2_hit := false
+    r3_hit := false
 
 // === WEAK SIGNAL ===
 weak_signal = trend_ok and breakout and (volume > (avg_vol * weak_volume_mult)) and in_date_range and not enter_long
