@@ -1,5 +1,5 @@
 //@version=5
-strategy("Minervini SEPA Strategy (75% Min Size, Full Clean Exit)", overlay=true, default_qty_type=strategy.cash)
+strategy("DR Soferian Strategy", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
 ma50_len = input(50, title="MA 50 Length")
@@ -7,9 +7,9 @@ ma150_len = input(150, title="MA 150 Length")
 ma200_len = input(200, title="MA 200 Length")
 atr_len = input(14, title="ATR Length")
 atr_mult = input(1.5, title="ATR Stop Multiplier")
-trailing_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
-volume_mult = input(2.0, title="Volume Breakout Multiplier")
-weak_volume_mult = input(1.5, title="Weak Volume Multiplier")
+trail_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
+vol_mult = input(2.0, title="Volume Breakout Multiplier")
+weak_vol_mult = input(1.5, title="Weak Volume Multiplier")
 breakout_lookback = input(20, title="Base Breakout Lookback")
 close_to_ma_pct = input(5.0, title="Buffer % Near 50MA Before Exiting")
 extra_ma_buffer_pct = input(0.5, title="Extra Stop Buffer % Below 50MA")
@@ -33,40 +33,39 @@ trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and
 
 // === BREAKOUT & VOLUME ===
 breakout = close > highest_high[1]
-high_vol = volume > (avg_vol * volume_mult)
+high_vol = volume > (avg_vol * vol_mult)
 
 // === STOP LOSS ===
-stop_loss_price = close - (atr * atr_mult)
-stop_loss_distance = math.max(close - stop_loss_price, syminfo.mintick)
+stop_price = close - (atr * atr_mult)
+stop_dist = math.max(close - stop_price, syminfo.mintick)
 
 // === BACKTEST TIME FILTER ===
-in_date_range = (year(time) >= (year(timenow) - 3))
+in_range = (year(time) >= (year(timenow) - 3))
 
 // === POSITION SIZE CALCULATION ===
 risk_dollars = (account_size * (risk_percent / 100))
-position_size_risk_based = risk_dollars / stop_loss_distance
-position_size_minimum = (account_size * (min_position_percent / 100)) / close
-
-final_position_size = math.max(position_size_risk_based, position_size_minimum)
+pos_size_risk = risk_dollars / stop_dist
+pos_size_min = (account_size * (min_position_percent / 100)) / close
+pos_size = math.max(pos_size_risk, pos_size_min)
 
 // === DYNAMIC TRAILING STOP ===
-var float trail_price = na
+var float trail = na
 if (strategy.position_size > 0)
-    highest_in_trade = ta.highest(high, bar_index - strategy.opentrades.entry_bar_index(0) + 1)
-    gain_from_entry = (highest_in_trade - strategy.opentrades.entry_price(0)) / strategy.opentrades.entry_price(0)
-    trail_multiplier_dynamic =
-         gain_from_entry > 0.3 ? trailing_atr_mult * 2.0 :
-         gain_from_entry > 0.15 ? trailing_atr_mult * 1.5 :
-         trailing_atr_mult
-    trail_price := highest_in_trade - (atr * trail_multiplier_dynamic)
+    high_in_trade = ta.highest(high, bar_index - strategy.opentrades.entry_bar_index(0) + 1)
+    gain = (high_in_trade - strategy.opentrades.entry_price(0)) / strategy.opentrades.entry_price(0)
+    trail_mult =
+         gain > 0.3 ? trail_atr_mult * 2.0 :
+         gain > 0.15 ? trail_atr_mult * 1.5 :
+         trail_atr_mult
+    trail := high_in_trade - (atr * trail_mult)
 else
-    trail_price := na
+    trail := na
 
 // === ENTRY CONDITION ===
-enter_long = trend_ok and breakout and high_vol and in_date_range
+enter = trend_ok and breakout and high_vol and in_range
 
-if (enter_long)
-    strategy.entry("MinerviniLong", strategy.long, qty=final_position_size)
+if (enter)
+    strategy.entry("Long", strategy.long, qty=pos_size)
 
 // === R LEVELS ===
 var float r1 = na
@@ -75,70 +74,70 @@ var float r3 = na
 
 if (strategy.position_size > 0)
     entry_price = strategy.opentrades.entry_price(0)
-    r1 := entry_price + stop_loss_distance * 1
-    r2 := entry_price + stop_loss_distance * 2
-    r3 := entry_price + stop_loss_distance * 3
+    r1 := entry_price + stop_dist * 1
+    r2 := entry_price + stop_dist * 2
+    r3 := entry_price + stop_dist * 3
 else
     r1 := na
     r2 := na
     r3 := na
 
-// === BOOLEANS: Track if R1/R2/R3 were hit ===
+// === TRACK R LEVELS HIT ===
 var bool r1_hit = false
 var bool r2_hit = false
 var bool r3_hit = false
 
 if (strategy.position_size > 0)
     if (not r1_hit and high >= r1)
-        strategy.close("MinerviniLong", qty_percent=25)
+        strategy.close("Long", qty_percent=25, comment="Close long partially")
         r1_hit := true
     if (not r2_hit and high >= r2)
-        strategy.close("MinerviniLong", qty_percent=25)
+        strategy.close("Long", qty_percent=25, comment="Close long partially")
         r2_hit := true
     if (not r3_hit and high >= r3)
-        strategy.close("MinerviniLong", qty_percent=25)
+        strategy.close("Long", qty_percent=25, comment="Close long partially")
         r3_hit := true
 
-// === SMART TRAILING STOP (check proximity to 50MA + add buffer below) ===
-var float final_trail_stop = na
+// === SMART TRAILING STOP (50MA BUFFER) ===
+var float smart_stop = na
 if (strategy.position_size > 0)
-    distance_to_50 = trail_price - ma50
-    buffer_zone = close_to_ma_pct / 100.0 * close
-    use_50_as_stop = (distance_to_50 <= buffer_zone) and (ma50 > 0)
-    stop_at = use_50_as_stop ? (ma50 * (1 - extra_ma_buffer_pct / 100.0)) : trail_price
-    final_trail_stop := stop_at
+    dist_to_50 = trail - ma50
+    buffer = close_to_ma_pct / 100.0 * close
+    use_50 = (dist_to_50 <= buffer) and (ma50 > 0)
+    stop_at = use_50 ? (ma50 * (1 - extra_ma_buffer_pct / 100.0)) : trail
+    smart_stop := stop_at
 else
-    final_trail_stop := na
+    smart_stop := na
 
-// === TRAILING STOP - Close 100% + clean up ===
+// === TRAILING STOP - EXIT ===
 if (strategy.position_size > 0)
-    stop_triggered = (low <= final_trail_stop)
-    if (stop_triggered)
-        strategy.close("MinerviniLong")
-        strategy.cancel("Trailing Stop")  // Clean up pending exit orders (if any)
+    stop_hit = (low <= smart_stop)
+    if (stop_hit)
+        strategy.close("Long", comment="Close long fully")
+        strategy.cancel("Trail")
 
-// === RESET BOOLEANS WHEN POSITION CLOSED ===
+// === RESET ON CLOSE ===
 if (strategy.position_size == 0)
     r1_hit := false
     r2_hit := false
     r3_hit := false
 
 // === WEAK SIGNAL ===
-weak_signal = trend_ok and breakout and (volume > (avg_vol * weak_volume_mult)) and in_date_range and not enter_long
-plotshape(weak_signal, style=shape.diamond, location=location.abovebar, size=size.small, 
-     color=color.new(color.orange, 20), title="Weak Breakout Signal", text="Watch")
+weak = trend_ok and breakout and (volume > (avg_vol * weak_vol_mult)) and in_range and not enter
+plotshape(weak, style=shape.diamond, location=location.abovebar, size=size.small, 
+     color=color.new(color.orange, 20), title="Weak", text="Watch")
 
 // === PLOT ENTRY SIGNAL ===
-plotshape(enter_long, style=shape.triangleup, location=location.belowbar, size=size.normal, 
-     color=color.new(color.lime, 0), title="Strong Breakout Entry", text="Strong")
+plotshape(enter, style=shape.triangleup, location=location.belowbar, size=size.normal, 
+     color=color.new(color.lime, 0), title="Strong", text="Strong")
 
-// === PLOTTING MOVING AVERAGES ===
-plot(ma50, color=color.new(color.green, 0), title="50 SMA", linewidth=2)
-plot(ma150, color=color.new(color.blue, 0), title="150 SMA", linewidth=2)
-plot(ma200, color=color.new(color.red, 0), title="200 SMA", linewidth=2)
+// === PLOT MOVING AVERAGES ===
+plot(ma50, color=color.new(color.green, 0), title="MA50", linewidth=2)
+plot(ma150, color=color.new(color.blue, 0), title="MA150", linewidth=2)
+plot(ma200, color=color.new(color.red, 0), title="MA200", linewidth=2)
 
-// === TRAILING STOP PLOT ===
-plot(final_trail_stop, color=color.purple, title="Final Trailing Stop (Smart)", style=plot.style_linebr, linewidth=2)
+// === PLOT SMART STOP ===
+plot(smart_stop, color=color.purple, title="TrailStop", style=plot.style_linebr, linewidth=2)
 
 // === PLOT R LEVELS ===
 plot(r1, title="R1", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
