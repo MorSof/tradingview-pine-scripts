@@ -1,0 +1,54 @@
+//@version=5
+strategy("Bitcoin - Responsive Gaussian Channel Breakout", overlay=true, 
+     initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100,
+     commission_type=strategy.commission.percent, commission_value=0.05)
+
+// User inputs
+length = input.int(55, minval=2, title="Gaussian Filter Length")
+mult   = input.float(1.5, minval=0.1, step=0.1, title="Channel Width Multiplier (ATR)")
+enableLong  = input.bool(true,  title="Enable Long Trades")
+enableShort = input.bool(true, title="Enable Short Trades")
+
+// Backtest date range
+startDate = input.time(timestamp("2019-01-01"), title="Backtest Start")
+endDate   = input.time(timestamp("2030-01-01"), title="Backtest End")
+timeFilter = (time >= startDate and time < endDate)
+
+// Gaussian filter (approximate with EMA smoothing)
+gaussian(src, len) =>
+    alpha = 2 / (len + 1)
+    ema1 = ta.ema(src, len)
+    ta.ema(ema1, len)
+
+gauss = gaussian(close, length)
+tr_filtered = gaussian(ta.tr(true), length)
+
+// Upper and lower bands
+upper = gauss + tr_filtered * mult
+lower = gauss - tr_filtered * mult
+
+// Plot bands
+midPlot = plot(gauss, title="Midline", color=color.blue, linewidth=2)
+upPlot  = plot(upper, title="Upper Band", color=color.green)
+loPlot  = plot(lower, title="Lower Band", color=color.red)
+fill(upPlot, loPlot, color=color.new(color.gray, 85), title="Channel Fill")
+
+// Entry conditions
+longCond = enableLong and ta.crossover(close, upper) and timeFilter
+shortCond = enableShort and ta.crossunder(close, lower) and timeFilter
+
+// Exit conditions
+exitLongCond = ta.crossunder(close, upper)
+exitShortCond = ta.crossover(close, lower)
+
+// Strategy logic
+if longCond
+    strategy.close("Short")
+    strategy.entry("Long", strategy.long)
+if shortCond
+    strategy.close("Long")
+    strategy.entry("Short", strategy.short)
+if exitLongCond
+    strategy.close("Long")
+if exitShortCond
+    strategy.close("Short")

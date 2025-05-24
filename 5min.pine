@@ -1,0 +1,46 @@
+//@version=5
+strategy("Three-EMA Momentum Scalping Strategy", overlay=true, margin_long=100, margin_short=100, 
+     default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// Indicator calculations
+emaFast = ta.ema(close, 9)
+emaMed  = ta.ema(close, 55)
+emaSlow = ta.ema(close, 200)
+rsiVal  = ta.rsi(close, 14)
+
+// MACD histogram (fast=12, slow=26, signal=9)
+[macdLine, signalLine, hist] = ta.macd(close, 12, 26, 9)
+
+// Define "larger-than-average" threshold using Bollinger Bands on MACD histogram
+macdHistBasis = ta.sma(hist, 20)
+macdHistStd   = ta.stdev(hist, 20)
+upperHistBand = macdHistBasis + macdHistStd      // 1 standard deviation above mean
+lowerHistBand = macdHistBasis - macdHistStd      // 1 standard deviation below mean
+
+// Long entry condition
+longTrend   = (emaFast > emaMed) and (emaMed > emaSlow)            // clear uptrend
+longMomentum= rsiVal > 51                                         // bullish momentum bias
+longPullback= (hist < 0) and (hist < lowerHistBand)               // sizeable negative histogram (pullback)
+longEntry   = longTrend and longMomentum and longPullback
+
+// Short entry condition
+shortTrend   = (emaFast < emaMed) and (emaMed < emaSlow)           // clear downtrend
+shortMomentum= rsiVal < 49                                         // bearish momentum bias
+shortPullback= (hist > 0) and (hist > upperHistBand)               // sizeable positive histogram (pullback)
+shortEntry   = shortTrend and shortMomentum and shortPullback
+
+// Execute entries
+if (longEntry)
+    strategy.entry("Long", strategy.long)
+if (shortEntry)
+    strategy.entry("Short", strategy.short)
+
+// Risk management: ATR-based stop and 2xATR target for demonstration
+var ATRlen = 14
+atr = ta.atr(ATRlen)
+if (strategy.position_size > 0 and strategy.position_is_long)
+    // Long: stop = entry price - ATR, target = entry + 2*ATR
+    strategy.exit("Long_TP", from_entry="Long", stop=strategy.position_avg_price - atr, limit=strategy.position_avg_price + 2*atr)
+if (strategy.position_size < 0 and strategy.position_is_short)
+    // Short: stop = entry price + ATR, target = entry - 2*ATR
+    strategy.exit("Short_TP", from_entry="Short", stop=strategy.position_avg_price + atr, limit=strategy.position_avg_price - 2*atr)

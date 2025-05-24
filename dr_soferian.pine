@@ -2,6 +2,8 @@
 strategy("DR Soferian Strategy", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
+benchmark_symbol = "SPX"  // Benchmark for RS (S&P 500)
+lookback_period = input.int(252, title="RS Lookback Period (Days)", minval=1)  // 252 trading days (about 1 year)
 ma50_len = input(50, title="MA 50 Length")
 ma150_len = input(150, title="MA 150 Length")
 ma200_len = input(200, title="MA 200 Length")
@@ -13,7 +15,6 @@ weak_vol_mult = input(1.5, title="Weak Volume Multiplier")
 breakout_lookback = input(20, title="Base Breakout Lookback")
 close_to_ma_pct = input(5.0, title="Buffer % Near 50MA Before Exiting")
 extra_ma_buffer_pct = input(0.5, title="Extra Stop Buffer % Below 50MA")
-
 account_size = input(10000, title="Account Size ($)")
 risk_percent = input(1.0, title="Risk per Trade (%)")
 min_position_percent = input(75.0, title="Minimum Position % of Account")
@@ -35,15 +36,31 @@ trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and
 breakout = close > highest_high[1]
 high_vol = volume > (avg_vol * vol_mult)
 
-// === STOP LOSS ===
-stop_price = close - (atr * atr_mult)
-stop_dist = math.max(close - stop_price, syminfo.mintick)
+// === RS CALCULATION OVER LOOKBACK PERIOD ===
+benchmark = request.security(benchmark_symbol, "D", close)  // Benchmark close prices
+stock_performance = close / close[lookback_period]  // Stock's performance over the lookback period
+benchmark_performance = benchmark / benchmark[lookback_period]  // Benchmark's performance over the lookback period
 
-// === BACKTEST TIME FILTER ===
-in_range = (year(time) >= (year(timenow) - 3))
+// === RS COMPARISON ===
+is_rs_strong = stock_performance > benchmark_performance  // True if stock outperforms the benchmark
+
+// === CREATE TABLE FOR DISPLAY ===
+var table rs_table = table.new(position.top_right, 1, 1, bgcolor=color.black, border_width=1)
+
+// === UPDATE TABLE CONTENT ===
+if (is_rs_strong)
+    table.cell(rs_table, 0, 0, "RS Strong", bgcolor=color.green, text_color=color.white)
+else
+    table.cell(rs_table, 0, 0, "RS Weak", bgcolor=color.red, text_color=color.white)
+
+// === 52-WEEK HIGH ===
+week52_high = ta.highest(high, 252)  // 52-week high (252 trading days)
+
+plot(week52_high, title="52-Week High", color=color.new(#FF6347, 0), style=plot.style_line, linewidth=3)
 
 // === POSITION SIZE CALCULATION ===
 risk_dollars = (account_size * (risk_percent / 100))
+stop_dist = math.max(close - (close - atr * atr_mult), syminfo.mintick)
 pos_size_risk = risk_dollars / stop_dist
 pos_size_min = (account_size * (min_position_percent / 100)) / close
 pos_size = math.max(pos_size_risk, pos_size_min)
@@ -53,7 +70,7 @@ var float trail = na
 if (strategy.position_size > 0)
     high_in_trade = ta.highest(high, bar_index - strategy.opentrades.entry_bar_index(0) + 1)
     gain = (high_in_trade - strategy.opentrades.entry_price(0)) / strategy.opentrades.entry_price(0)
-    trail_mult =
+    trail_mult = 
          gain > 0.3 ? trail_atr_mult * 2.0 :
          gain > 0.15 ? trail_atr_mult * 1.5 :
          trail_atr_mult
@@ -62,7 +79,7 @@ else
     trail := na
 
 // === ENTRY CONDITION ===
-enter = trend_ok and breakout and high_vol and in_range
+enter = trend_ok and breakout and high_vol and (year(time) >= (year(timenow) - 3))
 
 if (enter)
     strategy.entry("Long", strategy.long, qty=pos_size)
@@ -116,14 +133,8 @@ if (strategy.position_size > 0)
         strategy.close("Long", comment="Close long fully")
         strategy.cancel("Trail")
 
-// === RESET ON CLOSE ===
-if (strategy.position_size == 0)
-    r1_hit := false
-    r2_hit := false
-    r3_hit := false
-
 // === WEAK SIGNAL ===
-weak = trend_ok and breakout and (volume > (avg_vol * weak_vol_mult)) and in_range and not enter
+weak = trend_ok and breakout and (volume > (avg_vol * weak_vol_mult)) and not enter
 plotshape(weak, style=shape.diamond, location=location.abovebar, size=size.small, 
      color=color.new(color.orange, 20), title="Weak", text="Watch")
 
