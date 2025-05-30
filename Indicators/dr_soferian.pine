@@ -1,0 +1,56 @@
+// This indicator is exactly the same as the strategy, but it is an indicator that can be used in Tradingview's pine screener.
+
+//@version=5
+indicator("DR Soferian Screener", overlay=true)
+
+// === INPUTS ===
+benchmark_symbol = "SPX"
+lookback_period = input.int(252, title="RS Lookback Period (Days)", minval=1)
+ma50_len = input(50, title="MA 50 Length")
+ma150_len = input(150, title="MA 150 Length")
+ma200_len = input(200, title="MA 200 Length")
+atr_len = input(14, title="ATR Length")
+vol_mult = input(2.0, title="Volume Breakout Multiplier")
+weak_vol_mult = input(1.5, title="Weak Volume Multiplier")
+breakout_lookback = input(20, title="Base Breakout Lookback")
+
+// === MOVING AVERAGES ===
+ma50 = ta.sma(close, ma50_len)
+ma150 = ta.sma(close, ma150_len)
+ma200 = ta.sma(close, ma200_len)
+
+// === ATR & VOLUME ===
+atr = ta.atr(atr_len)
+highest_high = ta.highest(high, breakout_lookback)
+avg_vol = ta.sma(volume, 50)
+
+// === TREND CONDITIONS ===
+trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
+
+// === BREAKOUT & VOLUME ===
+breakout = close > highest_high[1]
+high_vol = volume > (avg_vol * vol_mult)
+
+// === RS CALCULATION ===
+benchmark = request.security(benchmark_symbol, "D", close)
+stock_performance = close / close[lookback_period]
+benchmark_performance = benchmark / benchmark[lookback_period]
+is_rs_strong = stock_performance > benchmark_performance
+
+// === STRONG SIGNAL CONDITION ===
+enter = trend_ok and breakout and high_vol and is_rs_strong and (year(time) >= (year(timenow) - 3))
+
+// === WEAK SIGNAL CONDITION ===
+weak = trend_ok and breakout and (volume > (avg_vol * weak_vol_mult)) and not enter
+
+// === PLOT SIGNAL SHAPES ===
+plotshape(enter, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.normal, title="Strong Signal")
+plotshape(weak, style=shape.diamond, location=location.abovebar, color=color.orange, size=size.small, title="Weak Signal")
+
+// === PLOT MOVING AVERAGES ===
+plot(ma50, color=color.new(color.green, 0), title="MA50", linewidth=1)
+plot(ma150, color=color.new(color.blue, 0), title="MA150", linewidth=1)
+plot(ma200, color=color.new(color.red, 0), title="MA200", linewidth=1)
+
+// === ALERT CONDITIONS FOR SCREENER ===
+alertcondition(enter, title="Strong Signal Alert", message="Strong DR Soferian signal on {{ticker}}")
