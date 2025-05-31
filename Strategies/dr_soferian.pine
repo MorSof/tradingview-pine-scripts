@@ -2,8 +2,8 @@
 strategy("DR Soferian Strategy", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
-benchmark_symbol = "SPX"  // Benchmark for RS (S&P 500)
-lookback_period = input.int(252, title="RS Lookback Period (Days)", minval=1)  // 252 trading days (about 1 year)
+benchmark_symbol = "SPX"
+lookback_period = input.int(252, title="RS Lookback Period (Days)", minval=1)
 ma50_len = input(50, title="MA 50 Length")
 ma150_len = input(150, title="MA 150 Length")
 ma200_len = input(200, title="MA 200 Length")
@@ -29,6 +29,11 @@ atr = ta.atr(atr_len)
 highest_high = ta.highest(high, breakout_lookback)
 avg_vol = ta.sma(volume, 50)
 
+// === VOLATILITY CONTRACTION (VISUAL ONLY) ===
+range_narrowing = atr == ta.lowest(atr, 10)
+plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny,
+     color=color.new(color.fuchsia, 0), title="Volatility Contraction")
+
 // === TREND CONDITIONS ===
 trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
 
@@ -36,26 +41,30 @@ trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and
 breakout = close > highest_high[1]
 high_vol = volume > (avg_vol * vol_mult)
 
-// === RS CALCULATION OVER LOOKBACK PERIOD ===
-benchmark = request.security(benchmark_symbol, "D", close)  // Benchmark close prices
-stock_performance = close / close[lookback_period]  // Stock's performance over the lookback period
-benchmark_performance = benchmark / benchmark[lookback_period]  // Benchmark's performance over the lookback period
+// === RS CALCULATION ===
+benchmark = request.security(benchmark_symbol, "D", close)
+stock_performance = close / close[lookback_period]
+benchmark_performance = benchmark / benchmark[lookback_period]
+is_rs_strong = stock_performance > benchmark_performance
 
-// === RS COMPARISON ===
-is_rs_strong = stock_performance > benchmark_performance  // True if stock outperforms the benchmark
+// === RS NEW HIGH ===
+rs_ratio = stock_performance / benchmark_performance
+rs_new_high = rs_ratio > ta.highest(rs_ratio, 252)[1]
 
-// === CREATE TABLE FOR DISPLAY ===
-var table rs_table = table.new(position.top_right, 1, 1, bgcolor=color.black, border_width=1)
+// === RS STATUS TABLE (TOP RIGHT) ===
+var table rs_status_table = table.new(position.top_right, 1, 2, border_width=1)
 
-// === UPDATE TABLE CONTENT ===
-if (is_rs_strong)
-    table.cell(rs_table, 0, 0, "RS Strong", bgcolor=color.green, text_color=color.white)
-else
-    table.cell(rs_table, 0, 0, "RS Weak", bgcolor=color.red, text_color=color.white)
+rs_text = is_rs_strong ? "RS > SPX" : "RS <= SPX"
+rs_color = is_rs_strong ? color.green : color.red
+
+rsnh_text = rs_new_high ? "RS NH" : "RS not NH"
+rsnh_color = rs_new_high ? color.green : color.gray
+
+table.cell(rs_status_table, 0, 0, text=rs_text, bgcolor=rs_color, text_color=color.white)
+table.cell(rs_status_table, 0, 1, text=rsnh_text, bgcolor=rsnh_color, text_color=color.white)
 
 // === 52-WEEK HIGH ===
-week52_high = ta.highest(high, 252)  // 52-week high (252 trading days)
-
+week52_high = ta.highest(high, 252)
 plot(week52_high, title="52-Week High", color=color.new(#FF6347, 0), style=plot.style_line, linewidth=3)
 
 // === POSITION SIZE CALCULATION ===
@@ -79,8 +88,7 @@ else
     trail := na
 
 // === ENTRY CONDITION ===
-enter = trend_ok and breakout and high_vol and (year(time) >= (year(timenow) - 3))
-
+enter = trend_ok and breakout and high_vol and is_rs_strong and (year(time) >= (year(timenow) - 3))
 if (enter)
     strategy.entry("Long", strategy.long, qty=pos_size)
 
@@ -88,7 +96,6 @@ if (enter)
 var float r1 = na
 var float r2 = na
 var float r3 = na
-
 if (strategy.position_size > 0)
     entry_price = strategy.opentrades.entry_price(0)
     r1 := entry_price + stop_dist * 1
@@ -103,7 +110,6 @@ else
 var bool r1_hit = false
 var bool r2_hit = false
 var bool r3_hit = false
-
 if (strategy.position_size > 0)
     if (not r1_hit and high >= r1)
         strategy.close("Long", qty_percent=25, comment="Close long partially")
@@ -154,3 +160,7 @@ plot(smart_stop, color=color.purple, title="TrailStop", style=plot.style_linebr,
 plot(r1, title="R1", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
 plot(r2, title="R2", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
 plot(r3, title="R3", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
+
+// === ALERT CONDITIONS ===
+alertcondition(enter, title="Strong Entry Signal", message="DR Soferian Strategy: Strong Entry Signal triggered!")
+alertcondition(weak, title="Weak Signal", message="DR Soferian Strategy: Weak signal (Watch).")
