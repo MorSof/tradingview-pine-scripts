@@ -10,29 +10,39 @@ ma200_len = input(200, title="MA 200 Length")
 atr_len = input(14, title="ATR Length")
 atr_mult = input(1.5, title="ATR Stop Multiplier")
 trail_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
-vol_mult = input(2.0, title="Volume Breakout Multiplier")
-weak_vol_mult = input(1.5, title="Weak Volume Multiplier")
-breakout_lookback = input(20, title="Base Breakout Lookback")
+vol_mult = input(1.8, title="Volume Breakout Multiplier")
+weak_vol_mult = input(1.2, title="Weak Volume Multiplier")
+breakout_lookback = input(10, title="Base Breakout Lookback")
+avg_vol_lookback = input(5, title="Average Volume Lookback")
 close_to_ma_pct = input(5.0, title="Buffer % Near 50MA Before Exiting")
 extra_ma_buffer_pct = input(0.5, title="Extra Stop Buffer % Below 50MA")
 account_size = input(10000, title="Account Size ($)")
 risk_percent = input(1.0, title="Risk per Trade (%)")
 min_position_percent = input(75.0, title="Minimum Position % of Account")
+use_ema21_exit = input.bool(true, title="Use 21 EMA as Exit")
+
+consolidation_x = input.int(5, title="Min Pink Dots (X)", minval=1)
+consolidation_y = input.int(15, title="Lookback Period for Pink Dots (Y)", minval=1)
 
 // === MOVING AVERAGES ===
 ma50 = ta.sma(close, ma50_len)
 ma150 = ta.sma(close, ma150_len)
 ma200 = ta.sma(close, ma200_len)
+ema21 = ta.ema(close, 21)
 
 // === ATR & VOLUME ===
 atr = ta.atr(atr_len)
 highest_high = ta.highest(high, breakout_lookback)
-avg_vol = ta.sma(volume, 50)
+avg_vol = ta.sma(volume, avg_vol_lookback)
 
-// === VOLATILITY CONTRACTION (VISUAL ONLY) ===
+// === VOLATILITY CONTRACTION (VISUAL + CONSOLIDATION FILTER) ===
 range_narrowing = atr == ta.lowest(atr, 10)
 plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny,
      color=color.new(color.fuchsia, 0), title="Volatility Contraction")
+
+pink_dot = range_narrowing ? 1 : 0
+pink_dot_sum = math.sum(pink_dot, consolidation_y)
+has_consolidated = pink_dot_sum >= consolidation_x
 
 // === TREND CONDITIONS ===
 trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
@@ -88,7 +98,7 @@ else
     trail := na
 
 // === ENTRY CONDITION ===
-enter = trend_ok and breakout and high_vol and is_rs_strong and (year(time) >= (year(timenow) - 3))
+enter = trend_ok and breakout and high_vol and is_rs_strong and has_consolidated and (year(time) >= (year(timenow) - 3))
 if (enter)
     strategy.entry("Long", strategy.long, qty=pos_size)
 
@@ -132,12 +142,13 @@ if (strategy.position_size > 0)
 else
     smart_stop := na
 
-// === TRAILING STOP - EXIT ===
-if (strategy.position_size > 0)
-    stop_hit = (low <= smart_stop)
-    if (stop_hit)
-        strategy.close("Long", comment="Close long fully")
-        strategy.cancel("Trail")
+// === EXIT LOGIC (TRAILING STOP OR 21 EMA) ===
+ema21_exit = use_ema21_exit and strategy.position_size > 0 and close < ema21
+stop_hit = strategy.position_size > 0 and (low <= smart_stop)
+
+if (ema21_exit or stop_hit)
+    strategy.close("Long", comment=ema21_exit ? "Close on 21 EMA" : "Close on Trail")
+    strategy.cancel("Trail")
 
 // === WEAK SIGNAL ===
 weak = trend_ok and breakout and (volume > (avg_vol * weak_vol_mult)) and not enter
@@ -152,6 +163,7 @@ plotshape(enter, style=shape.triangleup, location=location.belowbar, size=size.n
 plot(ma50, color=color.new(color.green, 0), title="MA50", linewidth=2)
 plot(ma150, color=color.new(color.blue, 0), title="MA150", linewidth=2)
 plot(ma200, color=color.new(color.red, 0), title="MA200", linewidth=2)
+plot(ema21, color=color.new(#00FFFF, 0), title="EMA21", linewidth=2)
 
 // === PLOT SMART STOP ===
 plot(smart_stop, color=color.purple, title="TrailStop", style=plot.style_linebr, linewidth=2)
@@ -164,3 +176,4 @@ plot(r3, title="R3", color=color.new(color.gray, 0), style=plot.style_linebr, li
 // === ALERT CONDITIONS ===
 alertcondition(enter, title="Strong Entry Signal", message="DR Soferian Strategy: Strong Entry Signal triggered!")
 alertcondition(weak, title="Weak Signal", message="DR Soferian Strategy: Weak signal (Watch).")
+alertcondition(ema21_exit, title="Exit on 21 EMA", message="DR Soferian Strategy: Exit triggered on close below 21 EMA")
