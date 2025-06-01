@@ -38,9 +38,7 @@ avg_vol = ta.sma(volume, avg_vol_lookback)
 
 // === VOLATILITY CONTRACTION ===
 range_narrowing = atr == ta.lowest(atr, lookback_days_default)
-plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny,
-     color=color.new(color.fuchsia, 0), title="Volatility Contraction")
-
+plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.fuchsia, 0), title="Volatility Contraction")
 pink_dot = range_narrowing ? 1 : 0
 pink_dot_sum = math.sum(pink_dot, consolidation_y)
 has_consolidated = pink_dot_sum >= consolidation_x
@@ -49,15 +47,16 @@ has_consolidated = pink_dot_sum >= consolidation_x
 base_high = ta.highest(close, base_min_bars)
 base_low = ta.lowest(close, base_min_bars)
 base_range_pct = 100 * (base_high - base_low) / base_low
-tight_base = base_range_pct < 15
+tight_base = base_range_pct < 20
 valid_base = tight_base and (bar_index - ta.lowestbars(low, base_min_bars) >= base_min_bars)
 
 // === TREND CONDITIONS ===
 trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
 
-// === BREAKOUT & VOLUME ===
-breakout = close > highest_high[1] and close > open
+// === STRICTER BREAKOUT ===
+close_near_high = close >= high - atr * 0.2
 high_vol = volume > (avg_vol * vol_mult)
+breakout_confirmed = close > highest_high[1] and close > open and close_near_high and high_vol
 
 // === RS CALCULATION ===
 benchmark = request.security(benchmark_symbol, "D", close)
@@ -68,6 +67,10 @@ is_rs_strong = stock_performance > benchmark_performance
 // === RS NEW HIGH ===
 rs_ratio = stock_performance / benchmark_performance
 rs_new_high = rs_ratio > ta.highest(rs_ratio, 252)[1]
+
+// === S&P 500 200MA FILTER ===
+benchmark_ma = request.security(benchmark_symbol, "D", ta.sma(close, 150))
+spx_trending_up = benchmark > benchmark_ma
 
 // === RS STATUS TABLE ===
 var table rs_status_table = table.new(position.top_right, 1, 2, border_width=1)
@@ -101,7 +104,7 @@ else
     trail := na
 
 // === ENTRY CONDITION ===
-enter = trend_ok and breakout and high_vol and is_rs_strong and has_consolidated and valid_base and near_52w_high and (year(time) >= (year(timenow) - 3))
+enter = trend_ok and breakout_confirmed and is_rs_strong and has_consolidated and valid_base and near_52w_high and spx_trending_up and (year(time) >= (year(timenow) - 3))
 if (enter)
     strategy.entry("Long", strategy.long, qty=pos_size)
 
@@ -153,13 +156,11 @@ if (ema21_exit or stop_hit)
     strategy.cancel("Trail")
 
 // === WEAK SIGNAL ===
-weak = trend_ok and breakout and (volume > (avg_vol * weak_vol_mult)) and not enter
-plotshape(weak, style=shape.diamond, location=location.abovebar, size=size.small, 
-     color=color.new(color.orange, 20), title="Weak", text="Watch")
+weak = trend_ok and breakout_confirmed and (volume > (avg_vol * weak_vol_mult)) and not enter
+plotshape(weak, style=shape.diamond, location=location.abovebar, size=size.small, color=color.new(color.orange, 20), title="Weak", text="Watch")
 
 // === PLOT ENTRY SIGNAL ===
-plotshape(enter, style=shape.triangleup, location=location.belowbar, size=size.normal, 
-     color=color.new(color.lime, 0), title="Strong", text="Strong")
+plotshape(enter, style=shape.triangleup, location=location.belowbar, size=size.normal, color=color.new(color.lime, 0), title="Strong", text="Strong")
 
 // === PLOT MOVING AVERAGES ===
 plot(ma50, color=color.new(color.green, 0), title="MA50", linewidth=2)
