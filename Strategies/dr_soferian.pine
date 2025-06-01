@@ -10,7 +10,7 @@ ma200_len = input(200, title="MA 200 Length")
 atr_len = input(14, title="ATR Length")
 atr_mult = input(1.5, title="ATR Stop Multiplier")
 trail_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
-vol_mult = input(1.8, title="Volume Breakout Multiplier")
+vol_mult = input(1.2, title="Volume Breakout Multiplier")
 weak_vol_mult = input(1.2, title="Weak Volume Multiplier")
 breakout_lookback = input(10, title="Base Breakout Lookback")
 avg_vol_lookback = input(5, title="Average Volume Lookback")
@@ -20,9 +20,9 @@ account_size = input(10000, title="Account Size ($)")
 risk_percent = input(1.0, title="Risk per Trade (%)")
 min_position_percent = input(75.0, title="Minimum Position % of Account")
 use_ema21_exit = input.bool(true, title="Use 21 EMA as Exit")
-
 consolidation_x = input.int(5, title="Min Pink Dots (X)", minval=1)
 consolidation_y = input.int(15, title="Lookback Period for Pink Dots (Y)", minval=1)
+base_min_bars = input.int(7, title="Minimum Base Duration (Bars)", minval=1)
 
 // === MOVING AVERAGES ===
 ma50 = ta.sma(close, ma50_len)
@@ -35,7 +35,7 @@ atr = ta.atr(atr_len)
 highest_high = ta.highest(high, breakout_lookback)
 avg_vol = ta.sma(volume, avg_vol_lookback)
 
-// === VOLATILITY CONTRACTION (VISUAL + CONSOLIDATION FILTER) ===
+// === VOLATILITY CONTRACTION ===
 range_narrowing = atr == ta.lowest(atr, 10)
 plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny,
      color=color.new(color.fuchsia, 0), title="Volatility Contraction")
@@ -43,6 +43,13 @@ plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=
 pink_dot = range_narrowing ? 1 : 0
 pink_dot_sum = math.sum(pink_dot, consolidation_y)
 has_consolidated = pink_dot_sum >= consolidation_x
+
+// === BASE DURATION CHECK (VCP-style) ===
+base_high = ta.highest(close, base_min_bars)
+base_low = ta.lowest(close, base_min_bars)
+base_range_pct = 100 * (base_high - base_low) / base_low
+tight_base = base_range_pct < 15
+valid_base = tight_base and (bar_index - ta.lowestbars(low, base_min_bars) >= base_min_bars)
 
 // === TREND CONDITIONS ===
 trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
@@ -61,15 +68,12 @@ is_rs_strong = stock_performance > benchmark_performance
 rs_ratio = stock_performance / benchmark_performance
 rs_new_high = rs_ratio > ta.highest(rs_ratio, 252)[1]
 
-// === RS STATUS TABLE (TOP RIGHT) ===
+// === RS STATUS TABLE ===
 var table rs_status_table = table.new(position.top_right, 1, 2, border_width=1)
-
 rs_text = is_rs_strong ? "RS > SPX" : "RS <= SPX"
 rs_color = is_rs_strong ? color.green : color.red
-
 rsnh_text = rs_new_high ? "RS NH" : "RS not NH"
 rsnh_color = rs_new_high ? color.green : color.gray
-
 table.cell(rs_status_table, 0, 0, text=rs_text, bgcolor=rs_color, text_color=color.white)
 table.cell(rs_status_table, 0, 1, text=rsnh_text, bgcolor=rsnh_color, text_color=color.white)
 
@@ -89,16 +93,13 @@ var float trail = na
 if (strategy.position_size > 0)
     high_in_trade = ta.highest(high, bar_index - strategy.opentrades.entry_bar_index(0) + 1)
     gain = (high_in_trade - strategy.opentrades.entry_price(0)) / strategy.opentrades.entry_price(0)
-    trail_mult = 
-         gain > 0.3 ? trail_atr_mult * 2.0 :
-         gain > 0.15 ? trail_atr_mult * 1.5 :
-         trail_atr_mult
+    trail_mult = gain > 0.3 ? trail_atr_mult * 2.0 : gain > 0.15 ? trail_atr_mult * 1.5 : trail_atr_mult
     trail := high_in_trade - (atr * trail_mult)
 else
     trail := na
 
 // === ENTRY CONDITION ===
-enter = trend_ok and breakout and high_vol and is_rs_strong and has_consolidated and (year(time) >= (year(timenow) - 3))
+enter = trend_ok and breakout and high_vol and is_rs_strong and has_consolidated and valid_base and (year(time) >= (year(timenow) - 3))
 if (enter)
     strategy.entry("Long", strategy.long, qty=pos_size)
 
@@ -145,7 +146,6 @@ else
 // === EXIT LOGIC (TRAILING STOP OR 21 EMA) ===
 ema21_exit = use_ema21_exit and strategy.position_size > 0 and close < ema21
 stop_hit = strategy.position_size > 0 and (low <= smart_stop)
-
 if (ema21_exit or stop_hit)
     strategy.close("Long", comment=ema21_exit ? "Close on 21 EMA" : "Close on Trail")
     strategy.cancel("Trail")
