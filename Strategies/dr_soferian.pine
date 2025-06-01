@@ -55,7 +55,7 @@ valid_base = tight_base and (bar_index - ta.lowestbars(low, base_min_bars) >= ba
 trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
 
 // === BREAKOUT & VOLUME ===
-breakout = close > highest_high[1]
+breakout = close > highest_high[1] and close > open
 high_vol = volume > (avg_vol * vol_mult)
 
 // === RS CALCULATION ===
