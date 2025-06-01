@@ -1,24 +1,30 @@
 //@version=5
-indicator("DR Soferian Indicator", overlay=true)
+indicator("DR Soferian Screener", overlay=true)
 
 // === INPUTS ===
+lookback_days_default = 10
 benchmark_symbol = "SPX"
 lookback_period = input.int(252, title="RS Lookback Period (Days)", minval=1)
 ma50_len = input(50, title="MA 50 Length")
 ma150_len = input(150, title="MA 150 Length")
 ma200_len = input(200, title="MA 200 Length")
-atr_len = input(14, title="ATR Length")
+atr_len = input(lookback_days_default, title="ATR Length")
 atr_mult = input(1.5, title="ATR Stop Multiplier")
 trail_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
-vol_mult = input(1.8, title="Volume Breakout Multiplier")
+vol_mult = input(1.2, title="Volume Breakout Multiplier")
 weak_vol_mult = input(1.2, title="Weak Volume Multiplier")
-breakout_lookback = input(10, title="Base Breakout Lookback")
-avg_vol_lookback = input(5, title="Average Volume Lookback")
+breakout_lookback = input(lookback_days_default, title="Base Breakout Lookback")
+avg_vol_lookback = input(lookback_days_default, title="Average Volume Lookback")
 close_to_ma_pct = input(5.0, title="Buffer % Near 50MA Before Exiting")
 extra_ma_buffer_pct = input(0.5, title="Extra Stop Buffer % Below 50MA")
+account_size = input(60000, title="Account Size ($)")
+risk_percent = input(1.0, title="Risk per Trade (%)")
+min_position_percent = input(75.0, title="Minimum Position % of Account")
 use_ema21_exit = input.bool(true, title="Use 21 EMA as Exit")
-consolidation_x = input.int(5, title="Min Pink Dots (X)", minval=1)
-consolidation_y = input.int(15, title="Lookback Period for Pink Dots (Y)", minval=1)
+consolidation_x = input.int(4, title="Min Pink Dots (X)", minval=1)
+consolidation_y = input.int(lookback_days_default, title="Lookback Period for Pink Dots (Y)", minval=1)
+base_min_bars = input.int(lookback_days_default, title="Minimum Base Duration (Bars)", minval=1)
+max_dist_from_ema21_pct = input.float(15.0, title="Max Distance from EMA21 (%) at Entry", minval=0.1)
 
 // === MOVING AVERAGES ===
 ma50 = ta.sma(close, ma50_len)
@@ -32,19 +38,26 @@ highest_high = ta.highest(high, breakout_lookback)
 avg_vol = ta.sma(volume, avg_vol_lookback)
 
 // === VOLATILITY CONTRACTION ===
-range_narrowing = atr == ta.lowest(atr, 10)
-plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny, color=color.fuchsia, title="Volatility Contraction")
-
+range_narrowing = atr == ta.lowest(atr, lookback_days_default)
+plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.fuchsia, 0), title="Volatility Contraction")
 pink_dot = range_narrowing ? 1 : 0
 pink_dot_sum = math.sum(pink_dot, consolidation_y)
 has_consolidated = pink_dot_sum >= consolidation_x
 
+// === BASE DURATION CHECK (VCP-style) ===
+base_high = ta.highest(close, base_min_bars)
+base_low = ta.lowest(close, base_min_bars)
+base_range_pct = 100 * (base_high - base_low) / base_low
+tight_base = base_range_pct < 20
+valid_base = tight_base and (bar_index - ta.lowestbars(low, base_min_bars) >= base_min_bars)
+
 // === TREND CONDITIONS ===
 trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
 
-// === BREAKOUT & VOLUME ===
-breakout = close > highest_high[1]
+// === STRICTER BREAKOUT ===
+close_near_high = close >= high - atr * 0.2
 high_vol = volume > (avg_vol * vol_mult)
+breakout_confirmed = close > highest_high[1] and close > open and close_near_high and high_vol
 
 // === RS CALCULATION ===
 benchmark = request.security(benchmark_symbol, "D", close)
@@ -56,34 +69,38 @@ is_rs_strong = stock_performance > benchmark_performance
 rs_ratio = stock_performance / benchmark_performance
 rs_new_high = rs_ratio > ta.highest(rs_ratio, 252)[1]
 
+// === S&P 500 200MA FILTER ===
+benchmark_ma = request.security(benchmark_symbol, "D", ta.sma(close, 150))
+spx_trending_up = benchmark > benchmark_ma
+
 // === 52-WEEK HIGH ===
 week52_high = ta.highest(high, 252)
 plot(week52_high, title="52-Week High", color=color.new(#FF6347, 0), style=plot.style_line, linewidth=3)
+near_52w_high = close >= week52_high * 0.85
 
-// === ENTRY SIGNAL ===
-enter = trend_ok and breakout and high_vol and is_rs_strong and has_consolidated and (year(time) >= (year(timenow) - 3))
-plotshape(enter, style=shape.triangleup, location=location.belowbar, size=size.normal, color=color.lime, title="Strong", text="Strong")
+// === DISTANCE TO EMA21 ===
+ema21_dist_pct = 100 * math.abs(close - ema21) / ema21
+near_ema21 = ema21_dist_pct <= max_dist_from_ema21_pct
+
+// === FINAL ENTRY SIGNAL ===
+strong_entry = trend_ok and breakout_confirmed and is_rs_strong and has_consolidated and valid_base and near_52w_high and spx_trending_up and near_ema21 and (year(time) >= (year(timenow) - 3))
 
 // === WEAK SIGNAL ===
-weak = trend_ok and breakout and (volume > (avg_vol * weak_vol_mult)) and not enter
-plotshape(weak, style=shape.diamond, location=location.abovebar, size=size.small, color=color.orange, title="Weak", text="Watch")
+weak_entry = trend_ok and breakout_confirmed and (volume > (avg_vol * weak_vol_mult)) and not strong_entry
 
-// === PLOT MOVING AVERAGES ===
-plot(ma50, color=color.green, title="MA50", linewidth=2)
-plot(ma150, color=color.blue, title="MA150", linewidth=2)
-plot(ma200, color=color.red, title="MA200", linewidth=2)
-plot(ema21, color=#00FFFF, title="EMA21", linewidth=2)
+// === EXIT SIGNAL ===
+exit_signal = use_ema21_exit and close < ema21
 
-// === RS STATUS TABLE ===
-var table rs_status_table = table.new(position.top_right, 1, 2, border_width=1)
-if bar_index % 10 == 0
-    rs_text = is_rs_strong ? "RS > SPX" : "RS <= SPX"
-    rs_color = is_rs_strong ? color.green : color.red
-    rsnh_text = rs_new_high ? "RS NH" : "RS not NH"
-    rsnh_color = rs_new_high ? color.green : color.gray
-    table.cell(rs_status_table, 0, 0, text=rs_text, bgcolor=rs_color, text_color=color.white)
-    table.cell(rs_status_table, 0, 1, text=rsnh_text, bgcolor=rsnh_color, text_color=color.white)
+// === PLOTS ===
+plotshape(strong_entry, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.normal, title="Strong Entry")
+plotshape(weak_entry, style=shape.diamond, location=location.abovebar, color=color.orange, size=size.small, title="Weak Signal")
 
-// === ALERT CONDITIONS ===
-alertcondition(enter, title="Strong Entry Signal", message="DR Soferian Strategy: Strong Entry Signal triggered!")
-alertcondition(weak, title="Weak Signal", message="DR Soferian Strategy: Weak signal (Watch).")
+// === MOVING AVERAGE PLOTS ===
+plot(ma50, color=color.green, title="MA50")
+plot(ma150, color=color.blue, title="MA150")
+plot(ma200, color=color.red, title="MA200")
+plot(ema21, color=color.new(#00FFFF, 0), title="EMA21")
+
+// === ALERTS ===
+alertcondition(strong_entry, title="Strong Entry", message="DR Soferian Indicator: Strong Entry Signal")
+alertcondition(weak_entry, title="Weak Entry", message="DR Soferian Indicator: Weak signal (Watch)")
