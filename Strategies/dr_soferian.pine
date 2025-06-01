@@ -80,6 +80,7 @@ table.cell(rs_status_table, 0, 1, text=rsnh_text, bgcolor=rsnh_color, text_color
 // === 52-WEEK HIGH ===
 week52_high = ta.highest(high, 252)
 plot(week52_high, title="52-Week High", color=color.new(#FF6347, 0), style=plot.style_line, linewidth=3)
+near_52w_high = close >= week52_high * 0.85
 
 // === POSITION SIZE CALCULATION ===
 risk_dollars = (account_size * (risk_percent / 100))
@@ -99,7 +100,7 @@ else
     trail := na
 
 // === ENTRY CONDITION ===
-enter = trend_ok and breakout and high_vol and is_rs_strong and has_consolidated and valid_base and (year(time) >= (year(timenow) - 3))
+enter = trend_ok and breakout and high_vol and is_rs_strong and has_consolidated and valid_base and near_52w_high and (year(time) >= (year(timenow) - 3))
 if (enter)
     strategy.entry("Long", strategy.long, qty=pos_size)
 
