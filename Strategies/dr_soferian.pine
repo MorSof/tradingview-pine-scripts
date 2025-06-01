@@ -2,27 +2,28 @@
 strategy("DR Soferian Strategy", overlay=true, default_qty_type=strategy.cash)
 
 // === INPUTS ===
+lookback_days_default = 10
 benchmark_symbol = "SPX"
 lookback_period = input.int(252, title="RS Lookback Period (Days)", minval=1)
 ma50_len = input(50, title="MA 50 Length")
 ma150_len = input(150, title="MA 150 Length")
 ma200_len = input(200, title="MA 200 Length")
-atr_len = input(14, title="ATR Length")
+atr_len = input(lookback_days_default, title="ATR Length")
 atr_mult = input(1.5, title="ATR Stop Multiplier")
 trail_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
 vol_mult = input(1.2, title="Volume Breakout Multiplier")
 weak_vol_mult = input(1.2, title="Weak Volume Multiplier")
-breakout_lookback = input(10, title="Base Breakout Lookback")
-avg_vol_lookback = input(5, title="Average Volume Lookback")
+breakout_lookback = input(lookback_days_default, title="Base Breakout Lookback")
+avg_vol_lookback = input(lookback_days_default, title="Average Volume Lookback")
 close_to_ma_pct = input(5.0, title="Buffer % Near 50MA Before Exiting")
 extra_ma_buffer_pct = input(0.5, title="Extra Stop Buffer % Below 50MA")
 account_size = input(60000, title="Account Size ($)")
 risk_percent = input(1.0, title="Risk per Trade (%)")
 min_position_percent = input(75.0, title="Minimum Position % of Account")
 use_ema21_exit = input.bool(true, title="Use 21 EMA as Exit")
-consolidation_x = input.int(5, title="Min Pink Dots (X)", minval=1)
-consolidation_y = input.int(15, title="Lookback Period for Pink Dots (Y)", minval=1)
-base_min_bars = input.int(7, title="Minimum Base Duration (Bars)", minval=1)
+consolidation_x = input.int(4, title="Min Pink Dots (X)", minval=1)
+consolidation_y = input.int(lookback_days_default, title="Lookback Period for Pink Dots (Y)", minval=1)
+base_min_bars = input.int(lookback_days_default, title="Minimum Base Duration (Bars)", minval=1)
 
 // === MOVING AVERAGES ===
 ma50 = ta.sma(close, ma50_len)
@@ -36,7 +37,7 @@ highest_high = ta.highest(high, breakout_lookback)
 avg_vol = ta.sma(volume, avg_vol_lookback)
 
 // === VOLATILITY CONTRACTION ===
-range_narrowing = atr == ta.lowest(atr, 10)
+range_narrowing = atr == ta.lowest(atr, lookback_days_default)
 plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny,
      color=color.new(color.fuchsia, 0), title="Volatility Contraction")
 
