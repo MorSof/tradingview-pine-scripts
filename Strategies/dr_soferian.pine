@@ -35,9 +35,12 @@ atr = ta.atr(atr_len)
 highest_high = ta.highest(high, breakout_lookback)
 avg_vol = ta.sma(volume, avg_vol_lookback)
 
-// === VOLATILITY CONTRACTION ===
-range_narrowing = atr == ta.lowest(atr, lookback_days_default)
-plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.fuchsia, 0), title="Volatility Contraction")
+// === VOLATILITY CONTRACTION (ATR Percentile Method) ===
+atr_min = ta.lowest(atr, consolidation_y)
+atr_max = ta.highest(atr, consolidation_y)
+atr_percentile = 100 * (atr - atr_min) / (atr_max - atr_min)
+range_narrowing = atr_percentile < 20
+plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.fuchsia, 0), title="Volatility Contraction (ATR%)")
 pink_dot = range_narrowing ? 1 : 0
 pink_dot_sum = math.sum(pink_dot, consolidation_y)
 has_consolidated = pink_dot_sum >= consolidation_x
