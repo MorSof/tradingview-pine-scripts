@@ -11,7 +11,7 @@ ma200_len = input(200, title="MA 200 Length")
 atr_len = input(lookback_days_default, title="ATR Length")
 atr_mult = input(1.5, title="ATR Stop Multiplier")
 trail_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
-vol_mult = input(1.2, title="Volume Breakout Multiplier")
+vol_mult = input(1.6, title="Volume Breakout Multiplier")
 weak_vol_mult = input(1.2, title="Weak Volume Multiplier")
 breakout_lookback = input(lookback_days_default, title="Base Breakout Lookback")
 avg_vol_lookback = input(lookback_days_default, title="Average Volume Lookback")
@@ -69,10 +69,6 @@ is_rs_strong = stock_performance > benchmark_performance
 rs_ratio = stock_performance / benchmark_performance
 rs_new_high = rs_ratio > ta.highest(rs_ratio, 252)[1]
 
-// === S&P 500 200MA FILTER ===
-benchmark_ma = request.security(benchmark_symbol, "D", ta.sma(close, 150))
-spx_trending_up = benchmark > benchmark_ma
-
 // === RS STATUS TABLE ===
 var table rs_status_table = table.new(position.top_right, 1, 2, border_width=1)
 rs_text = is_rs_strong ? "RS > SPX" : "RS <= SPX"
@@ -81,6 +77,10 @@ rsnh_text = rs_new_high ? "RS NH" : "RS not NH"
 rsnh_color = rs_new_high ? color.green : color.gray
 table.cell(rs_status_table, 0, 0, text=rs_text, bgcolor=rs_color, text_color=color.white)
 table.cell(rs_status_table, 0, 1, text=rsnh_text, bgcolor=rsnh_color, text_color=color.white)
+
+// === S&P 500 200MA FILTER ===
+benchmark_ma = request.security(benchmark_symbol, "D", ta.sma(close, 150))
+spx_trending_up = benchmark > benchmark_ma
 
 // === 52-WEEK HIGH ===
 week52_high = ta.highest(high, 252)
@@ -98,19 +98,14 @@ pos_size_risk = risk_dollars / stop_dist
 pos_size_min = (account_size * (min_position_percent / 100)) / close
 pos_size = math.max(pos_size_risk, pos_size_min)
 
-// === DYNAMIC TRAILING STOP ===
-var float trail = na
-if (strategy.position_size > 0)
-    high_in_trade = ta.highest(high, bar_index - strategy.opentrades.entry_bar_index(0) + 1)
-    gain = (high_in_trade - strategy.opentrades.entry_price(0)) / strategy.opentrades.entry_price(0)
-    trail_mult = gain > 0.3 ? trail_atr_mult * 2.0 : gain > 0.15 ? trail_atr_mult * 1.5 : trail_atr_mult
-    trail := high_in_trade - (atr * trail_mult)
-else
-    trail := na
+// === ENTRY CONDITIONS ===
+is_recent = (year(time) >= (year(timenow) - 3))
+watch = breakout_confirmed and not trend_ok
+weak = breakout_confirmed and trend_ok and (volume > (avg_vol * weak_vol_mult)) and not (is_rs_strong and has_consolidated and valid_base and near_52w_high and near_ema21)
+strong = trend_ok and breakout_confirmed and is_rs_strong and has_consolidated and valid_base and near_52w_high and spx_trending_up and near_ema21 and is_recent
+super_strong = strong and close > week52_high[1] and rs_new_high and base_range_pct < 15
 
-// === ENTRY CONDITION ===
-enter = trend_ok and breakout_confirmed and is_rs_strong and has_consolidated and valid_base and near_52w_high and spx_trending_up and near_ema21 and (year(time) >= (year(timenow) - 3))
-if (enter)
+if (strong)
     strategy.entry("Long", strategy.long, qty=pos_size)
 
 // === R LEVELS ===
@@ -133,16 +128,25 @@ var bool r2_hit = false
 var bool r3_hit = false
 if (strategy.position_size > 0)
     if (not r1_hit and high >= r1)
-        strategy.close("Long", qty_percent=25, comment="Close long partially")
+        strategy.close("Long", qty_percent=25, comment="Close long partially at R1")
         r1_hit := true
     if (not r2_hit and high >= r2)
-        strategy.close("Long", qty_percent=25, comment="Close long partially")
+        strategy.close("Long", qty_percent=25, comment="Close long partially at R2")
         r2_hit := true
     if (not r3_hit and high >= r3)
-        strategy.close("Long", qty_percent=25, comment="Close long partially")
+        strategy.close("Long", qty_percent=25, comment="Close long partially at R3")
         r3_hit := true
 
-// === SMART TRAILING STOP (50MA BUFFER) ===
+// === EXIT LOGIC ===
+var float trail = na
+if (strategy.position_size > 0)
+    high_in_trade = ta.highest(high, bar_index - strategy.opentrades.entry_bar_index(0) + 1)
+    gain = (high_in_trade - strategy.opentrades.entry_price(0)) / strategy.opentrades.entry_price(0)
+    trail_mult = gain > 0.3 ? trail_atr_mult * 2.0 : gain > 0.15 ? trail_atr_mult * 1.5 : trail_atr_mult
+    trail := high_in_trade - (atr * trail_mult)
+else
+    trail := na
+
 var float smart_stop = na
 if (strategy.position_size > 0)
     dist_to_50 = trail - ma50
@@ -153,35 +157,27 @@ if (strategy.position_size > 0)
 else
     smart_stop := na
 
-// === EXIT LOGIC (TRAILING STOP OR 21 EMA) ===
 ema21_exit = use_ema21_exit and strategy.position_size > 0 and close < ema21
 stop_hit = strategy.position_size > 0 and (low <= smart_stop)
 if (ema21_exit or stop_hit)
     strategy.close("Long", comment=ema21_exit ? "Close on 21 EMA" : "Close on Trail")
-    strategy.cancel("Trail")
 
-// === WEAK SIGNAL ===
-weak = trend_ok and breakout_confirmed and (volume > (avg_vol * weak_vol_mult)) and not enter
-plotshape(weak, style=shape.diamond, location=location.abovebar, size=size.small, color=color.new(color.orange, 20), title="Weak", text="Watch")
-
-// === PLOT ENTRY SIGNAL ===
-plotshape(enter, style=shape.triangleup, location=location.belowbar, size=size.normal, color=color.new(color.lime, 0), title="Strong", text="Strong")
-
-// === PLOT MOVING AVERAGES ===
+// === PLOTS ===
+plot(r1, title="R1", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
+plot(r2, title="R2", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
+plot(r3, title="R3", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
+plotshape(watch, style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.gray, 0), title="Watch", text="Watch")
+plotshape(weak, style=shape.diamond, location=location.abovebar, size=size.small, color=color.new(color.orange, 0), title="Weak", text="Weak")
+plotshape(strong, style=shape.triangleup, location=location.belowbar, size=size.normal, color=color.new(color.lime, 0), title="Strong", text="Strong")
+plotshape(super_strong, style=shape.triangleup, location=location.belowbar, size=size.large, color=color.new(color.aqua, 0), title="Super Strong", text="Super")
 plot(ma50, color=color.new(color.green, 0), title="MA50", linewidth=2)
 plot(ma150, color=color.new(color.blue, 0), title="MA150", linewidth=2)
 plot(ma200, color=color.new(color.red, 0), title="MA200", linewidth=2)
 plot(ema21, color=color.new(#00FFFF, 0), title="EMA21", linewidth=2)
-
-// === PLOT SMART STOP ===
 plot(smart_stop, color=color.purple, title="TrailStop", style=plot.style_linebr, linewidth=2)
 
-// === PLOT R LEVELS ===
-plot(r1, title="R1", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
-plot(r2, title="R2", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
-plot(r3, title="R3", color=color.new(color.gray, 0), style=plot.style_linebr, linewidth=1)
-
-// === ALERT CONDITIONS ===
-alertcondition(enter, title="Strong Entry Signal", message="DR Soferian Strategy: Strong Entry Signal triggered!")
-alertcondition(weak, title="Weak Signal", message="DR Soferian Strategy: Weak signal (Watch).")
-alertcondition(ema21_exit, title="Exit on 21 EMA", message="DR Soferian Strategy: Exit triggered on close below 21 EMA")
+// === ALERTS ===
+alertcondition(watch, title="Watch Signal", message="Watch level breakout.")
+alertcondition(weak, title="Weak Signal", message="Weak breakout attempt.")
+alertcondition(strong, title="Strong Signal", message="Strong breakout setup.")
+alertcondition(super_strong, title="Super Strong Signal", message="Super strong breakout with strict confirmation.")
