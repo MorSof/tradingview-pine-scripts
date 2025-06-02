@@ -46,7 +46,7 @@ has_consolidated = pink_dot_sum >= consolidation_x
 base_high = ta.highest(close, base_min_bars)
 base_low = ta.lowest(close, base_min_bars)
 base_range_pct = 100 * (base_high - base_low) / base_low
-tight_base = base_range_pct < 20
+tight_base = base_range_pct < 15
 valid_base = tight_base and (bar_index - ta.lowestbars(low, base_min_bars) >= base_min_bars)
 
 // === TREND CONDITIONS ===
@@ -97,7 +97,7 @@ is_recent = (year(time) >= (year(timenow) - 3))
 watch = breakout_confirmed and not trend_ok
 weak = breakout_confirmed and trend_ok and (volume > (avg_vol * weak_vol_mult)) and not (is_rs_strong and has_consolidated and valid_base and near_52w_high and near_ema21)
 strong = trend_ok and breakout_confirmed and is_rs_strong and has_consolidated and valid_base and near_52w_high and spx_trending_up and near_ema21 and is_recent
-super_strong = strong and close > week52_high[1] and rs_new_high and base_range_pct < 15
+super_strong = strong and close > week52_high[1] and rs_new_high
 
 if (strong)
     strategy.entry("Long", strategy.long, qty=pos_size)
