@@ -24,6 +24,8 @@ consolidation_y = input.int(lookback_days_default, title="Lookback Period for Pi
 base_min_bars = input.int(lookback_days_default, title="Minimum Base Duration (Bars)", minval=1)
 max_dist_from_ema21_pct = input.float(15.0, title="Max Distance from EMA21 (%) at Entry", minval=0.1)
 fallback_base_width_pct = input.float(10.0, title="Max Base Width % (Fallback)", minval=1.0)
+tight_base_lookback = input.int(5, title="Lookback Period for Green Dots (Tight Base)", minval=1)
+min_tight_base_dots = input.int(4, title="Min Green Dots (Tight Base)", minval=1)
 
 // === MOVING AVERAGES ===
 ma50 = ta.sma(close, ma50_len)
@@ -50,15 +52,17 @@ has_consolidated = pink_dot_sum >= consolidation_x
 base_high = ta.highest(close, base_min_bars)
 base_low = ta.lowest(close, base_min_bars)
 base_range_pct = 100 * (base_high - base_low) / base_low
-
 atr_start = ta.linreg(atr, base_min_bars, 0)
 atr_end = ta.linreg(atr, base_min_bars, base_min_bars - 1)
 atr_slope = (atr_start - atr_end) / base_min_bars
 atr_decreasing = atr_slope < 0
-
 tight_base = (base_range_pct < fallback_base_width_pct) and atr_decreasing
 valid_base = tight_base and (bar_index - ta.lowestbars(low, base_min_bars) >= base_min_bars)
 plotshape(valid_base == 1, title="Tight Contraction Dot", location=location.belowbar, style=shape.circle, size=size.tiny, color=color.green, offset=0)
+
+green_dot = valid_base ? 1 : 0
+green_dot_sum = math.sum(green_dot, tight_base_lookback)
+has_tight_base_recently = green_dot_sum >= min_tight_base_dots
 
 // === TREND CONDITIONS ===
 trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
@@ -110,8 +114,8 @@ pos_size = account_size / close
 // === ENTRY CONDITIONS ===
 is_recent = (year(time) >= (year(timenow) - 3))
 watch = breakout_confirmed and not trend_ok
-weak = breakout_confirmed and trend_ok and (volume > (avg_vol * weak_vol_mult)) and not (is_rs_strong and has_consolidated and had_valid_base_recently and near_52w_high and near_ema21)
-strong = trend_ok and breakout_confirmed and is_rs_strong and has_consolidated and had_valid_base_recently and near_52w_high and spx_trending_up and near_ema21 and is_recent
+weak = breakout_confirmed and trend_ok and (volume > (avg_vol * weak_vol_mult)) and not (is_rs_strong and has_consolidated and has_tight_base_recently and near_52w_high and near_ema21)
+strong = trend_ok and breakout_confirmed and is_rs_strong and has_consolidated and has_tight_base_recently and near_52w_high and spx_trending_up and near_ema21 and is_recent
 super_strong = strong and close > week52_high[1] and rs_new_high
 
 if (strong)
