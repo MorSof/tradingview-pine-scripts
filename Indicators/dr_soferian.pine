@@ -9,98 +9,91 @@ ma50_len = input(50, title="MA 50 Length")
 ma150_len = input(150, title="MA 150 Length")
 ma200_len = input(200, title="MA 200 Length")
 atr_len = input(lookback_days_default, title="ATR Length")
-atr_mult = input(1.5, title="ATR Stop Multiplier")
-trail_atr_mult = input(2.5, title="Trailing Stop ATR Multiplier (Base)")
-vol_mult = input(1.2, title="Volume Breakout Multiplier")
+vol_mult = input(1.6, title="Volume Breakout Multiplier")
 weak_vol_mult = input(1.2, title="Weak Volume Multiplier")
 breakout_lookback = input(lookback_days_default, title="Base Breakout Lookback")
 avg_vol_lookback = input(lookback_days_default, title="Average Volume Lookback")
-close_to_ma_pct = input(5.0, title="Buffer % Near 50MA Before Exiting")
-extra_ma_buffer_pct = input(0.5, title="Extra Stop Buffer % Below 50MA")
-account_size = input(60000, title="Account Size ($)")
-risk_percent = input(1.0, title="Risk per Trade (%)")
-min_position_percent = input(75.0, title="Minimum Position % of Account")
-use_ema21_exit = input.bool(true, title="Use 21 EMA as Exit")
 consolidation_x = input.int(4, title="Min Pink Dots (X)", minval=1)
 consolidation_y = input.int(lookback_days_default, title="Lookback Period for Pink Dots (Y)", minval=1)
 base_min_bars = input.int(lookback_days_default, title="Minimum Base Duration (Bars)", minval=1)
 max_dist_from_ema21_pct = input.float(15.0, title="Max Distance from EMA21 (%) at Entry", minval=0.1)
+base_atr_mult = input.float(3.5, title="Base ATR Multiplier for Width", minval=0.5)
 
-// === MOVING AVERAGES ===
+// === MA / ATR / VOLUME ===
 ma50 = ta.sma(close, ma50_len)
 ma150 = ta.sma(close, ma150_len)
 ma200 = ta.sma(close, ma200_len)
 ema21 = ta.ema(close, 21)
-
-// === ATR & VOLUME ===
 atr = ta.atr(atr_len)
 highest_high = ta.highest(high, breakout_lookback)
 avg_vol = ta.sma(volume, avg_vol_lookback)
 
-// === VOLATILITY CONTRACTION ===
-range_narrowing = atr == ta.lowest(atr, lookback_days_default)
-plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny, color=color.new(color.fuchsia, 0), title="Volatility Contraction")
+// === VOLATILITY CONTRACTION (ATR Percentile Method) ===
+atr_min = ta.lowest(atr, consolidation_y)
+atr_max = ta.highest(atr, consolidation_y)
+atr_percentile = 100 * (atr - atr_min) / (atr_max - atr_min)
+range_narrowing = atr_percentile < 20
 pink_dot = range_narrowing ? 1 : 0
 pink_dot_sum = math.sum(pink_dot, consolidation_y)
 has_consolidated = pink_dot_sum >= consolidation_x
 
-// === BASE DURATION CHECK (VCP-style) ===
+// === BASE CONDITIONS ===
 base_high = ta.highest(close, base_min_bars)
 base_low = ta.lowest(close, base_min_bars)
 base_range_pct = 100 * (base_high - base_low) / base_low
-tight_base = base_range_pct < 20
+base_atr = ta.sma(atr, base_min_bars)
+dynamic_base_threshold_pct = 100 * (base_atr * base_atr_mult) / base_low
+tight_base = base_range_pct < dynamic_base_threshold_pct
 valid_base = tight_base and (bar_index - ta.lowestbars(low, base_min_bars) >= base_min_bars)
 
 // === TREND CONDITIONS ===
 trend_ok = close > ma50 and close > ma150 and close > ma200 and ma50 > ma150 and ma150 > ma200 and ma200 > ma200[20]
 
-// === STRICTER BREAKOUT ===
+// === BREAKOUT CONFIRMATION ===
 close_near_high = close >= high - atr * 0.2
 high_vol = volume > (avg_vol * vol_mult)
 breakout_confirmed = close > highest_high[1] and close > open and close_near_high and high_vol
 
-// === RS CALCULATION ===
+// === RS ===
 benchmark = request.security(benchmark_symbol, "D", close)
-stock_performance = close / close[lookback_period]
-benchmark_performance = benchmark / benchmark[lookback_period]
-is_rs_strong = stock_performance > benchmark_performance
-
-// === RS NEW HIGH ===
-rs_ratio = stock_performance / benchmark_performance
+stock_perf = close / close[lookback_period]
+bench_perf = benchmark / benchmark[lookback_period]
+is_rs_strong = stock_perf > bench_perf
+rs_ratio = stock_perf / bench_perf
 rs_new_high = rs_ratio > ta.highest(rs_ratio, 252)[1]
 
-// === S&P 500 200MA FILTER ===
+// === SPX FILTER ===
 benchmark_ma = request.security(benchmark_symbol, "D", ta.sma(close, 150))
 spx_trending_up = benchmark > benchmark_ma
 
-// === 52-WEEK HIGH ===
+// === 52 WEEK HIGH & EMA DISTANCE ===
 week52_high = ta.highest(high, 252)
-plot(week52_high, title="52-Week High", color=color.new(#FF6347, 0), style=plot.style_line, linewidth=3)
 near_52w_high = close >= week52_high * 0.85
-
-// === DISTANCE TO EMA21 ===
 ema21_dist_pct = 100 * math.abs(close - ema21) / ema21
 near_ema21 = ema21_dist_pct <= max_dist_from_ema21_pct
 
-// === FINAL ENTRY SIGNAL ===
-strong_entry = trend_ok and breakout_confirmed and is_rs_strong and has_consolidated and valid_base and near_52w_high and spx_trending_up and near_ema21 and (year(time) >= (year(timenow) - 3))
-
-// === WEAK SIGNAL ===
-weak_entry = trend_ok and breakout_confirmed and (volume > (avg_vol * weak_vol_mult)) and not strong_entry
-
-// === EXIT SIGNAL ===
-exit_signal = use_ema21_exit and close < ema21
+// === FINAL CONDITIONS ===
+is_recent = (year(time) >= (year(timenow) - 3))
+watch = breakout_confirmed and not trend_ok
+weak = breakout_confirmed and trend_ok and (volume > (avg_vol * weak_vol_mult)) and not (is_rs_strong and has_consolidated and valid_base and near_52w_high and near_ema21)
+strong = trend_ok and breakout_confirmed and is_rs_strong and has_consolidated and valid_base and near_52w_high and spx_trending_up and near_ema21 and is_recent
+super_strong = strong and close > week52_high[1] and rs_new_high
 
 // === PLOTS ===
-plotshape(strong_entry, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.normal, title="Strong Entry")
-plotshape(weak_entry, style=shape.diamond, location=location.abovebar, color=color.orange, size=size.small, title="Weak Signal")
+plot(ma50, color=color.green, title="MA50", linewidth=1)
+plot(ma150, color=color.blue, title="MA150", linewidth=1)
+plot(ma200, color=color.red, title="MA200", linewidth=1)
+plot(ema21, color=color.aqua, title="EMA21", linewidth=1)
+plot(week52_high, title="52-Week High", color=color.red, linewidth=2)
+plotshape(valid_base == 1, title="Tight Contraction Dot", location=location.belowbar, style=shape.circle, size=size.tiny, color=color.green)
+plotshape(range_narrowing, style=shape.circle, location=location.abovebar, size=size.tiny, color=color.fuchsia, title="Volatility Contraction (ATR%)")
+plotshape(watch, title="Watch", location=location.abovebar, style=shape.circle, size=size.tiny, color=color.gray)
+plotshape(weak, title="Weak", location=location.abovebar, style=shape.diamond, size=size.small, color=color.orange)
+plotshape(strong, title="Strong", location=location.belowbar, style=shape.triangleup, size=size.normal, color=color.lime)
+plotshape(super_strong, title="Super Strong", location=location.belowbar, style=shape.triangleup, size=size.large, color=color.aqua)
 
-// === MOVING AVERAGE PLOTS ===
-plot(ma50, color=color.green, title="MA50")
-plot(ma150, color=color.blue, title="MA150")
-plot(ma200, color=color.red, title="MA200")
-plot(ema21, color=color.new(#00FFFF, 0), title="EMA21")
-
-// === ALERTS ===
-alertcondition(strong_entry, title="Strong Entry", message="DR Soferian Indicator: Strong Entry Signal")
-alertcondition(weak_entry, title="Weak Entry", message="DR Soferian Indicator: Weak signal (Watch)")
+// === ALERTS FOR SCREENER ===
+alertcondition(watch, title="Watch Signal", message="Watch breakout detected")
+alertcondition(weak, title="Weak Signal", message="Weak breakout detected")
+alertcondition(strong, title="Strong Signal", message="Strong breakout detected")
+alertcondition(super_strong, title="Super Strong Signal", message="Super strong breakout detected")
