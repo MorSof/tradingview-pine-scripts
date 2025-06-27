@@ -1,0 +1,76 @@
+//@version=5
+strategy("5m Opening Range Strategy (1R:2R) + Visuals", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// ─── INPUTS ─────────────────────────
+r_dollars = input.float(30, "Risk per trade ($)")
+r_multiple = input.int(2, "Reward Multiple", minval=1)
+high_proximity_buffer = input.float(0.005, "High Proximity Threshold (e.g., 0.005 = 0.5%)")
+
+// ─── MA + ATR SETUP ────────────────
+ma20 = ta.sma(close, 20)
+ma200 = ta.sma(close, 200)
+daily_atr = request.security(syminfo.tickerid, "D", ta.atr(14))
+prev_close = request.security(syminfo.tickerid, "D", close)
+yest_low = request.security(syminfo.tickerid, "D", low)
+yest_high = request.security(syminfo.tickerid, "D", high)
+
+// ─── TODAY'S LOW BASED ON 5M CHART ─
+is_new_day = ta.change(time("D")) != 0
+var float today_low_5m = na
+today_low_5m := is_new_day ? low : math.min(today_low_5m, low)
+
+// ─── PRICE RANGE LOGIC ─────────────
+price_range_base = math.min(prev_close, today_low_5m)
+max_price_up = price_range_base + daily_atr
+
+// ─── TIME FILTER: FIRST 15 MINUTES ─
+candle_number = (hour == 9 and minute >= 30 and minute < 35) ? 1 : (hour == 9 and minute >= 35 and minute < 40) ? 2 : (hour == 9 and minute >= 40 and minute < 45) ? 3 : na
+
+// ─── TRACK HIGHS FOR CANDLES 1 & 2 ──
+var float high_c1 = na
+var float high_c2 = na
+high_c1 := is_new_day or candle_number == 1 ? high : high_c1
+high_c2 := is_new_day or candle_number == 2 ? high : high_c2
+
+// ─── ENTRY CONDITION SINGLE LINE ────
+near_yest_high_and_not_breaking = (yest_high - close) / close <= high_proximity_buffer and close <= yest_high
+
+enter_long = (close > open and (high - close) <= (high - low) * 0.25) and
+             (close > ma20 and ma20 > ma200) and
+             (close > prev_close) and
+             ((candle_number == 1) or
+              (candle_number == 2 and close > high_c1) or
+              (candle_number == 3 and close > high_c1 and close > high_c2)) and
+             (hour == 9 and minute >= 30 and minute < 45) and
+             (close - price_range_base > 0) and
+             ((close - price_range_base + r_multiple * (close - price_range_base)) <= daily_atr) and
+             ((close - price_range_base) <= r_dollars) and
+             not near_yest_high_and_not_breaking
+
+// ─── STOP LOSS WITH BUFFER ──────────
+use_yest_low = (close - yest_low) / close <= 0.01
+stop_buffer = daily_atr * 0.1  // 10% of ATR as buffer
+raw_stop = use_yest_low ? yest_low : math.min(prev_close, today_low_5m)
+stop_loss_price = raw_stop - stop_buffer
+
+// ─── RISK & REWARD ──────────────────
+risk_per_share = close - stop_loss_price
+position_size = r_dollars / risk_per_share
+position_size_rounded = math.floor(position_size)
+take_profit = math.min(close + r_multiple * risk_per_share, max_price_up)
+
+// ─── EXECUTE TRADE ─────────────────
+if enter_long
+    strategy.entry("Long", strategy.long, qty=position_size_rounded)
+    strategy.exit("TP/SL", from_entry="Long", limit=take_profit, stop=stop_loss_price)
+
+// ─── PLOTS ─────────────────────────
+plot(ma20, color=color.orange, title="MA 20")
+plot(ma200, color=color.blue, title="MA 200")
+plotshape(enter_long, title="Entry", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)
+plot(enter_long ? stop_loss_price : na, "Stop Loss (1R)", color=color.gray, style=plot.style_linebr, linewidth=2)
+plot(enter_long ? take_profit : na, "Take Profit (2R)", color=color.gray, style=plot.style_linebr, linewidth=2)
+plot(prev_close, "Previous Close", color=color.white, linewidth=1, style=plot.style_line)
+plot(yest_low, "Yesterday Low", color=color.red, linewidth=1, style=plot.style_line)
+plot(yest_high, "Yesterday High", color=color.green, linewidth=1, style=plot.style_line)
+plot(max_price_up, "Expected Max Up (ATR)", color=color.aqua, linewidth=1, style=plot.style_line)
