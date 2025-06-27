@@ -74,3 +74,13 @@ plot(prev_close, "Previous Close", color=color.white, linewidth=1, style=plot.st
 plot(yest_low, "Yesterday Low", color=color.red, linewidth=1, style=plot.style_line)
 plot(yest_high, "Yesterday High", color=color.green, linewidth=1, style=plot.style_line)
 plot(max_price_up, "Expected Max Up (ATR)", color=color.aqua, linewidth=1, style=plot.style_line)
+
+// ─── DEBUG LABELS FOR FIRST 3 CANDLES ─────
+if candle_number == 1 or candle_number == 2 or candle_number == 3
+    candle_cond = candle_number == 1 or
+                  (candle_number == 2 and close > high_c1) or
+                  (candle_number == 3 and close > high_c1 and close > high_c2)
+    
+    label_text = "Candle " + str.tostring(candle_number) + "\nclose > open: " + (close > open ? "✅" : "❌") + "\nsmall tail: " + ((high - close) <= (high - low) * 0.25 ? "✅" : "❌") + "\nMA order: " + ((close > ma20 and ma20 > ma200) ? "✅" : "❌") + "\nclose > prev: " + (close > prev_close ? "✅" : "❌") + "\ncandle cond: " + (candle_cond ? "✅" : "❌") + "\nrange > 0: " + ((close - price_range_base > 0) ? "✅" : "❌") + "\nwithin ATR: " + (((close - price_range_base + r_multiple * (close - price_range_base)) <= daily_atr) ? "✅" : "❌") + "\nrisk ≤ $" + str.tostring(r_dollars) + ": " + (((close - price_range_base) <= r_dollars) ? "✅" : "❌") + "\nnot near yHigh: " + (not near_yest_high_and_not_breaking ? "✅" : "❌")
+
+    label.new(bar_index, low, label_text, yloc=yloc.belowbar, style=label.style_label_down, color=color.new(color.gray, 0), textcolor=color.white, size=size.small)
