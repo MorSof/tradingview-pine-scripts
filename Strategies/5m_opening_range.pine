@@ -3,7 +3,7 @@ strategy("5m Opening Range Strategy (1R:2R) + Visuals", overlay=true, default_qt
 
 // ─── INPUTS ─────────────────────────
 r_dollars = input.float(30, "Risk per trade ($)")
-r_multiple = input.int(2, "Reward Multiple", minval=1)
+r_multiple = input.int(1, "Reward Multiple", minval=1)
 high_proximity_buffer = input.float(0.005, "High Proximity Threshold (e.g., 0.005 = 0.5%)")
 
 // ─── MA + ATR SETUP ────────────────
