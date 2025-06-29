@@ -87,10 +87,12 @@ lookback_bars = 12  // last 1 hour of 5m candles
 
 should_adjust = in_trade and not na(entry_bar_index) and bars_since_entry >= 24 and (na(last_adjustment_bar) or bar_index - last_adjustment_bar >= 12)
 
+last_hour_high = ta.highest(high, lookback_bars)
+last_hour_low = ta.lowest(low, lookback_bars)
 
 if should_adjust
-    dynamic_tp := ta.highest(high, lookback_bars)
-    dynamic_sl := ta.lowest(low, lookback_bars)
+    dynamic_tp := last_hour_high
+    dynamic_sl := last_hour_low
     last_adjustment_bar := bar_index
 
 // ─── SINGLE DYNAMIC EXIT ───
@@ -114,6 +116,6 @@ if candle_number == 1 or candle_number == 2 or candle_number == 3
                   (candle_number == 2 and close > high_c1) or
                   (candle_number == 3 and close > high_c1 and close > high_c2)
     
-    label_text = "Candle " + str.tostring(candle_number) + "\nopen<close: " + (close > open ? "✅" : "❌") + "\ntail ok: " + ((high - close) <= (high - low) * 0.25 ? "✅" : "❌") + "\nMA order: " + ((close > ma20 and ma20 > ma200) ? "✅" : "❌") + "\n>prev: " + (close > prev_close ? "✅" : "❌") + "\ncandle ok: " + ((candle_number == 1) or (candle_number == 2 and close > high_c1) or (candle_number == 3 and close > high_c1 and close > high_c2) ? "✅" : "❌") + "\nrange ok: " + ((close - price_range_base > 0) ? "✅" : "❌") + "\nin ATR: " + (((close - price_range_base + r_multiple * (close - price_range_base)) <= daily_atr) ? "✅" : "❌") + "\n≤$" + str.tostring(r_dollars) + ": " + ((close - price_range_base <= r_dollars) ? "✅" : "❌") + "\nnot near yHigh: " + (not near_yest_high_and_not_breaking ? "✅" : "❌")
+    label_text = "Candle " + str.tostring(candle_number) + "\nopen<close: " + (close > open ? "✅" : "❌") + "\ntail ok: " + ((high - close) <= (high - low) * 0.25 ? "✅" : "❌") + "\nMA order: " + ((close > ma20 and ma20 > ma200) ? "✅" : "❌") + "\n>prev: " + (close > prev_close ? "✅" : "❌") + "\ncandle ok: " + ((candle_number == 1) or (candle_number == 2 and close > high_c1) or (candle_number == 3 and close > high_c1 and close > high_c2) ? "✅" : "❌") + "\nrange ok: " + ((close - price_range_base > 0) ? "✅" : "❌") + "\nin ATR: " + (((close - price_range_base + r_multiple * (close - price_range_base)) <= daily_atr) ? "✅" : "❌") + "\n≤$" + str.tostring(r_dollars) + ": " + ((close - price_range_base <= r_dollars) ? "✅" : "❌") + "\nnot near yHigh: " + (not near_yest_high_and_not_breaking ? "✅" : "❌") + "\n📦 Shares: " + str.tostring(position_size_rounded) + "\n🎯 TP: " + str.tostring(initial_take_profit, "#.##") + "\n🧯 SL: " + str.tostring(initial_stop_loss, "#.##")
 
     label.new(bar_index, low, label_text, yloc=yloc.belowbar, style=label.style_label_down, color=color.new(color.gray, 0), textcolor=color.white, size=size.small)
