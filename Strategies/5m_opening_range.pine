@@ -30,7 +30,6 @@ max_price_up = price_range_base + daily_atr
 // ─── TIME FILTER: FIRST 15 MINUTES ─
 candle_number = (hour == 9 and minute >= 30 and minute < 35) ? 1 : (hour == 9 and minute >= 35 and minute < 40) ? 2 : (hour == 9 and minute >= 40 and minute < 45) ? 3 : na
 
-
 // ─── CANDLE DISPLAY FILTER ─────────
 show_current_candle = (candle_number == 1 and show_first_candle) or
                       (candle_number == 2 and show_second_candle) or
@@ -56,17 +55,6 @@ bool_within_atr_target = (close - price_range_base + r_multiple * (close - price
 bool_within_r_dollars = (close - price_range_base) <= r_dollars
 bool_not_near_yhigh = not near_yest_high_and_not_breaking
 
-// ─── ENTRY SIGNAL ──────────────────
-enter_long = bool_cond_open_close and
-             bool_cond_tail_ok and
-             bool_ma_order and
-             bool_above_prev_close and
-             bool_candle_progression and
-             bool_time_valid and
-             bool_within_atr_target and
-             bool_within_r_dollars and
-             bool_not_near_yhigh
-
 // ─── STOP LOSS WITH BUFFER ─────────
 use_yest_low = (close - yest_low) / close <= 0.01
 stop_buffer = daily_atr * 0.1
@@ -79,45 +67,54 @@ position_size = r_dollars / risk_per_share
 position_size_rounded = math.floor(position_size)
 initial_take_profit = math.min(close + r_multiple * risk_per_share, max_price_up)
 
-// ─── POSITION MANAGEMENT VARIABLES ─
-var int entry_bar_index = na
-var int last_adjustment_bar = na
+// ─── ENTRY ─────────────────────────
+enter_long = bool_cond_open_close and
+             bool_cond_tail_ok and
+             bool_ma_order and
+             bool_above_prev_close and
+             bool_candle_progression and
+             bool_time_valid and
+             bool_within_atr_target and
+             bool_within_r_dollars and
+             bool_not_near_yhigh and
+             position_size_rounded > 0
+
+// ─── TP/SL DYNAMIC ADJUSTMENT ──────
 var float dynamic_tp = na
 var float dynamic_sl = na
-var bool in_trade = false
-
+var int last_adjustment_bar = na
 if enter_long
     strategy.entry("Long", strategy.long, qty=position_size_rounded)
-    entry_bar_index := bar_index
-    last_adjustment_bar := na
     dynamic_tp := initial_take_profit
     dynamic_sl := initial_stop_loss
-    in_trade := true
 
-if strategy.position_size == 0
+// ─── POSITION STATE & ENTRY BAR ────
+in_trade = strategy.position_size > 0
+var int entry_bar_index = na
+if na(entry_bar_index) and in_trade
+    entry_bar_index := bar_index
+if not in_trade
     entry_bar_index := na
-    last_adjustment_bar := na
-    dynamic_tp := na
-    dynamic_sl := na
-    in_trade := false
 
-// ─── TP/SL UPDATE EVERY HOUR AFTER 2 HOURS ─
-bars_since_entry = bar_index - entry_bar_index
-lookback_bars = 12
+bars_since_entry = not na(entry_bar_index) ? bar_index - entry_bar_index : na
 
-should_adjust = in_trade and not na(entry_bar_index) and bars_since_entry >= 24 and (na(last_adjustment_bar) or bar_index - last_adjustment_bar >= 12)
+should_adjust = in_trade and not na(bars_since_entry) and bars_since_entry >= 24 and (na(last_adjustment_bar) or bar_index - last_adjustment_bar >= 12)
 
-last_hour_high = ta.highest(high, lookback_bars)
-last_hour_low = ta.lowest(low, lookback_bars)
+last_hour_high = ta.highest(high, 12)
+last_hour_low = ta.lowest(low, 12)
 
 if should_adjust
     dynamic_tp := last_hour_high
     dynamic_sl := last_hour_low
     last_adjustment_bar := bar_index
 
-// ─── SINGLE DYNAMIC EXIT ───────────
+
+// Use dynamic or initial values
+current_tp = not na(dynamic_tp) ? dynamic_tp : initial_take_profit
+current_sl = not na(dynamic_sl) ? dynamic_sl : initial_stop_loss
+
 if in_trade
-    strategy.exit("Dynamic TP/SL", from_entry="Long", limit=dynamic_tp, stop=dynamic_sl)
+    strategy.exit("Dynamic TP/SL", from_entry="Long", limit=current_tp, stop=current_sl)
 
 // ─── PLOTS ─────────────────────────
 plot(ma20, color=color.orange, title="MA 20")
@@ -127,10 +124,10 @@ plot(prev_close, "Previous Close", color=color.white, linewidth=1, style=plot.st
 plot(yest_low, "Yesterday Low", color=color.red, linewidth=1, style=plot.style_line)
 plot(yest_high, "Yesterday High", color=color.green, linewidth=1, style=plot.style_line)
 plot(max_price_up, "Expected Max Up (ATR)", color=color.aqua, linewidth=1, style=plot.style_line)
-plot(in_trade ? dynamic_tp : na, title="Adjusted TP", color=color.lime, linewidth=2, style=plot.style_linebr)
-plot(in_trade ? dynamic_sl : na, title="Adjusted SL", color=color.red, linewidth=2, style=plot.style_linebr)
+plot(in_trade ? current_tp : na, title="Adjusted TP", color=color.lime, linewidth=2, style=plot.style_linebr)
+plot(in_trade ? current_sl : na, title="Adjusted SL", color=color.red, linewidth=2, style=plot.style_linebr)
 
-// ─── DEBUG LABELS FOR FIRST 3 CANDLES ─────
+// ─── DEBUG LABELS ──────────────────
 if show_debug_labels and show_current_candle
     label_text = "Candle: " + str.tostring(candle_number) + 
                  "\nBullish candle: " + (bool_cond_open_close ? "✅" : "❌") +
@@ -144,5 +141,4 @@ if show_debug_labels and show_current_candle
                  "\n📦 Position size: " + str.tostring(position_size_rounded) +
                  "\n🎯 Take Profit: " + str.tostring(initial_take_profit, "#.##") +
                  "\n🧯 Stop Loss: " + str.tostring(initial_stop_loss, "#.##")
-
     label.new(bar_index, low, label_text, yloc=yloc.belowbar, style=label.style_label_down, color=color.new(color.gray, 0), textcolor=color.white, size=size.small)
