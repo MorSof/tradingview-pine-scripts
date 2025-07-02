@@ -1,5 +1,5 @@
 //@version=5
-strategy("5m Opening Range Strategy (1R:2R) + Visuals", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+strategy("5m Opening Range Strategy (1R:2R) + VWAP + Visuals", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
 
 // ─── INPUTS ─────────────────────────
 r_dollars = input.float(30, "Risk per trade ($)")
@@ -9,9 +9,10 @@ show_first_candle = input.bool(true, "Show First Candle")
 show_second_candle = input.bool(true, "Show Second Candle")
 show_third_candle = input.bool(true, "Show Third Candle")
 
-// ─── MA + ATR SETUP ────────────────
+// ─── MA + VWAP + ATR SETUP ─────────
 ma20 = ta.sma(close, 20)
 ma200 = ta.sma(close, 200)
+vwap = ta.vwap
 daily_atr = request.security(syminfo.tickerid, "D", ta.atr(14))
 prev_close = request.security(syminfo.tickerid, "D", close)
 yest_low = request.security(syminfo.tickerid, "D", low)
@@ -46,6 +47,7 @@ bool_time_valid = (hour == 9 and minute >= 30 and minute < 45)
 bool_within_atr_target = (close - price_range_base + r_multiple * (close - price_range_base)) <= daily_atr
 bool_within_r_dollars = (close - price_range_base) <= r_dollars
 bool_not_near_yhigh = not near_yest_high_and_not_breaking
+bool_vwap_trend = close > vwap
 
 // ─── STOP LOSS WITH BUFFER ─────────
 use_yest_low = (close - yest_low) / close <= 0.01
@@ -60,7 +62,7 @@ position_size_rounded = math.floor(position_size)
 initial_take_profit = math.min(close + r_multiple * risk_per_share, max_price_up)
 
 // ─── ENTRY ─────────────────────────
-enter_long = bool_cond_open_close and bool_cond_tail_ok and bool_ma_order and bool_above_prev_close and bool_candle_progression and bool_time_valid and bool_within_atr_target and bool_within_r_dollars and bool_not_near_yhigh and position_size_rounded > 0
+enter_long = bool_cond_open_close and bool_cond_tail_ok and bool_ma_order and bool_above_prev_close and bool_candle_progression and bool_time_valid and bool_within_atr_target and bool_within_r_dollars and bool_not_near_yhigh and bool_vwap_trend and position_size_rounded > 0
 
 // ─── TP/SL DYNAMIC ADJUSTMENT ──────
 var float dynamic_tp = na
@@ -99,6 +101,7 @@ if in_trade
 // ─── PLOTS ─────────────────────────
 plot(ma20, color=color.orange, title="MA 20")
 plot(ma200, color=color.blue, title="MA 200")
+plot(vwap, color=color.fuchsia, title="VWAP", linewidth=1)
 plotshape(enter_long, title="Entry", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)
 plot(prev_close, "Previous Close", color=color.white, linewidth=1)
 plot(yest_low, "Yesterday Low", color=color.red, linewidth=1)
@@ -106,7 +109,6 @@ plot(yest_high, "Yesterday High", color=color.green, linewidth=1)
 plot(max_price_up, "Expected Max Up (ATR)", color=color.aqua, linewidth=1)
 plotshape(in_trade ? current_tp : na, title="Adjusted TP", location=location.absolute, color=color.lime, style=shape.circle, size=size.tiny)
 plotshape(in_trade ? current_sl : na, title="Adjusted SL", location=location.absolute, color=color.red, style=shape.circle, size=size.tiny)
-
 
 // ─── DEBUG LABELS PER CANDLE ───────
 label_text = "\nBullish candle: " + (bool_cond_open_close ? "✅" : "❌") +
@@ -117,6 +119,7 @@ label_text = "\nBullish candle: " + (bool_cond_open_close ? "✅" : "❌") +
              "\nWithin ATR target: " + (bool_within_atr_target ? "✅" : "❌") +
              "\nRisk within $" + str.tostring(r_dollars) + ": " + (bool_within_r_dollars ? "✅" : "❌") +
              "\nNot near yesterday's high: " + (bool_not_near_yhigh ? "✅" : "❌") +
+             "\nAbove VWAP: " + (bool_vwap_trend ? "✅" : "❌") +
              "\n📦 Position size: " + str.tostring(position_size_rounded) +
              "\n🎯 Take Profit: " + str.tostring(initial_take_profit, "#.##") +
              "\n🧯 Stop Loss: " + str.tostring(initial_stop_loss, "#.##")
