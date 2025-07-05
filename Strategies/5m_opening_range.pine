@@ -1,5 +1,5 @@
 //@version=5
-strategy("5m Opening Range Strategy (1R:2R) + VWAP + Visuals", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+strategy("5m Opening Range Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
 
 // ─── INPUTS ─────────────────────────
 r_dollars = input.float(30, "Risk per trade ($)")
@@ -36,6 +36,11 @@ var float high_c2 = na
 high_c1 := is_new_day or candle_number == 1 ? high : high_c1
 high_c2 := is_new_day or candle_number == 2 ? high : high_c2
 
+// ─── MARKET TREND FILTER (QQQ) ─────
+qqq_close = request.security("QQQ", "D", close)
+qqq_ema21 = request.security("QQQ", "D", ta.ema(close, 21))
+bool_market_trend_ok = qqq_close > qqq_ema21
+
 // ─── ENTRY CONDITION COMPONENTS ────
 near_yest_high_and_not_breaking = (yest_high - close) / close <= high_proximity_buffer and close <= yest_high
 bool_cond_open_close = close > open
@@ -62,7 +67,7 @@ position_size_rounded = math.floor(position_size)
 initial_take_profit = math.min(close + r_multiple * risk_per_share, max_price_up)
 
 // ─── ENTRY ─────────────────────────
-enter_long = bool_cond_open_close and bool_cond_tail_ok and bool_ma_order and bool_above_prev_close and bool_candle_progression and bool_time_valid and bool_within_atr_target and bool_within_r_dollars and bool_not_near_yhigh and bool_vwap_trend and position_size_rounded > 0
+enter_long = bool_cond_open_close and bool_cond_tail_ok and bool_ma_order and bool_above_prev_close and bool_candle_progression and bool_time_valid and bool_within_atr_target and bool_within_r_dollars and bool_not_near_yhigh and bool_vwap_trend and bool_market_trend_ok and position_size_rounded > 0
 
 // ─── TP/SL DYNAMIC ADJUSTMENT ──────
 var float dynamic_tp = na
@@ -99,7 +104,7 @@ if in_trade
     strategy.exit("Dynamic TP/SL", from_entry="Long", limit=current_tp, stop=current_sl)
 
 // ─── R/R RATIO CALCULATION ─────────
-rr_ratio = (current_tp - close) > 0 and (close - current_sl) > 0 ? (current_tp - close) / (close - current_sl) : na
+rr_ratio = math.abs((current_tp - close) / (close - current_sl))
 
 // ─── PLOTS ─────────────────────────
 plot(ma20, color=color.orange, title="MA 20")
@@ -123,6 +128,7 @@ label_text = "\nBullish candle: " + (bool_cond_open_close ? "✅" : "❌") +
              "\nRisk within $" + str.tostring(r_dollars) + ": " + (bool_within_r_dollars ? "✅" : "❌") +
              "\nNot near yesterday's high: " + (bool_not_near_yhigh ? "✅" : "❌") +
              "\nAbove VWAP: " + (bool_vwap_trend ? "✅" : "❌") +
+             "\nQQQ > 21EMA: " + (bool_market_trend_ok ? "✅" : "❌") +
              "\n📦 Position size: " + str.tostring(position_size_rounded) +
              "\n🎯 Take Profit: " + str.tostring(initial_take_profit, "#.##") +
              "\n🧯 Stop Loss: " + str.tostring(initial_stop_loss, "#.##") +
