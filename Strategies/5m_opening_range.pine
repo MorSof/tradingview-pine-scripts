@@ -98,6 +98,9 @@ current_sl = not na(dynamic_sl) ? dynamic_sl : initial_stop_loss
 if in_trade
     strategy.exit("Dynamic TP/SL", from_entry="Long", limit=current_tp, stop=current_sl)
 
+// ─── R/R RATIO CALCULATION ─────────
+rr_ratio = (current_tp - close) > 0 and (close - current_sl) > 0 ? (current_tp - close) / (close - current_sl) : na
+
 // ─── PLOTS ─────────────────────────
 plot(ma20, color=color.orange, title="MA 20")
 plot(ma200, color=color.blue, title="MA 200")
@@ -122,7 +125,8 @@ label_text = "\nBullish candle: " + (bool_cond_open_close ? "✅" : "❌") +
              "\nAbove VWAP: " + (bool_vwap_trend ? "✅" : "❌") +
              "\n📦 Position size: " + str.tostring(position_size_rounded) +
              "\n🎯 Take Profit: " + str.tostring(initial_take_profit, "#.##") +
-             "\n🧯 Stop Loss: " + str.tostring(initial_stop_loss, "#.##")
+             "\n🧯 Stop Loss: " + str.tostring(initial_stop_loss, "#.##") +
+             "\n📈 R/R Ratio: " + (not na(rr_ratio) ? str.tostring(rr_ratio, "#.##") : "N/A")
 
 if (candle_number == 1 and show_first_candle) or (candle_number == 2 and show_second_candle) or (candle_number == 3 and show_third_candle)
     label.new(bar_index, low, "Candle: " + str.tostring(candle_number) + label_text, yloc=yloc.belowbar, style=label.style_label_down, color=color.new(color.gray, 0), textcolor=color.white)
