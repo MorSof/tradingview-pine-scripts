@@ -3,7 +3,7 @@ strategy("5m Opening Range Strategy", overlay=true, default_qty_type=strategy.pe
 
 // ─── INPUTS ─────────────────────────
 r_dollars = input.float(30, "Risk per trade ($)")
-r_multiple = input.int(1, "Reward Multiple", minval=1)
+r_multiple = input.float(1.0, "Reward Multiple", minval=0.1, step=0.1)
 high_proximity_buffer = input.float(0.005, "High Proximity Threshold (e.g., 0.005 = 0.5%)")
 show_first_candle = input.bool(true, "Show First Candle")
 show_second_candle = input.bool(true, "Show Second Candle")
