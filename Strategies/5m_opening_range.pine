@@ -17,6 +17,7 @@ daily_atr = request.security(syminfo.tickerid, "D", ta.atr(14))
 prev_close = request.security(syminfo.tickerid, "D", close)
 yest_low = request.security(syminfo.tickerid, "D", low)
 yest_high = request.security(syminfo.tickerid, "D", high)
+ticker_ema28 = request.security(syminfo.tickerid, "D", ta.ema(close, 28))
 
 // ─── TODAY'S LOW BASED ON 5M CHART ─
 is_new_day = ta.change(time("D")) != 0
@@ -40,6 +41,7 @@ high_c2 := is_new_day or candle_number == 2 ? high : high_c2
 qqq_close = request.security("QQQ", "D", close)
 qqq_ema21 = request.security("QQQ", "D", ta.ema(close, 21))
 bool_market_trend_ok = qqq_close > qqq_ema21
+bool_ticker_trend_ok = close > ticker_ema28
 
 // ─── ENTRY CONDITION COMPONENTS ────
 near_yest_high_and_not_breaking = (yest_high - close) / close <= high_proximity_buffer and close <= yest_high
@@ -67,7 +69,7 @@ position_size_rounded = math.floor(position_size)
 initial_take_profit = math.min(close + r_multiple * risk_per_share, max_price_up)
 
 // ─── ENTRY ─────────────────────────
-enter_long = bool_cond_open_close and bool_cond_tail_ok and bool_ma_order and bool_above_prev_close and bool_candle_progression and bool_time_valid and bool_within_atr_target and bool_within_r_dollars and bool_not_near_yhigh and bool_vwap_trend and bool_market_trend_ok and position_size_rounded > 0
+enter_long = bool_cond_open_close and bool_cond_tail_ok and bool_ma_order and bool_above_prev_close and bool_candle_progression and bool_time_valid and bool_within_atr_target and bool_within_r_dollars and bool_not_near_yhigh and bool_vwap_trend and bool_market_trend_ok and bool_ticker_trend_ok and position_size_rounded > 0
 
 // ─── TP/SL DYNAMIC ADJUSTMENT ──────
 var float dynamic_tp = na
@@ -129,6 +131,7 @@ label_text = "\nBullish candle: " + (bool_cond_open_close ? "✅" : "❌") +
              "\nNot near yesterday's high: " + (bool_not_near_yhigh ? "✅" : "❌") +
              "\nAbove VWAP: " + (bool_vwap_trend ? "✅" : "❌") +
              "\nQQQ > 21EMA: " + (bool_market_trend_ok ? "✅" : "❌") +
+             "\nTicker > 28EMA: " + (bool_ticker_trend_ok ? "✅" : "❌") +
              "\n📦 Position size: " + str.tostring(position_size_rounded) +
              "\n🎯 Take Profit: " + str.tostring(initial_take_profit, "#.##") +
              "\n🧯 Stop Loss: " + str.tostring(initial_stop_loss, "#.##") +
