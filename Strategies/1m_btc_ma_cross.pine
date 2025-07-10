@@ -1,38 +1,39 @@
 //@version=5
-strategy("BTC MA Strategy (Exit on Confirm MA Cross)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+strategy("BTC MA Strategy (Trading IBIT)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
 
 // ─── INPUTS ─────────────────────────
 ma_entry_len = input.int(9, "Entry MA Length", minval=1)
 ma_confirm_len = input.int(12, "Confirmation MA Length", minval=1)
 
-// ─── MOVING AVERAGES ────────────────
-ma_entry = ta.sma(close, ma_entry_len)
-ma_confirm = ta.sma(close, ma_confirm_len)
+// ─── BTC DATA FOR SIGNALS ───────────
+btc_symbol = "BINANCE:BTCUSDT"
+btc_close = request.security(btc_symbol, timeframe.period, close)
+btc_ma_entry = ta.sma(btc_close, ma_entry_len)
+btc_ma_confirm = ta.sma(btc_close, ma_confirm_len)
 
-// ─── CROSS CONDITIONS ───────────────
-bull_cross = ta.crossover(ma_entry, ma_confirm)
-bear_cross = ta.crossunder(ma_entry, ma_confirm)
-exit_long = ta.crossunder(close, ma_confirm)
-exit_short = ta.crossover(close, ma_confirm)
+bull_cross = ta.crossover(btc_ma_entry, btc_ma_confirm)
+bear_cross = ta.crossunder(btc_ma_entry, btc_ma_confirm)
+exit_long = ta.crossunder(btc_close, btc_ma_confirm)
+exit_short = ta.crossover(btc_close, btc_ma_confirm)
 
 // ─── POSITION CONTROL ──────────────
 in_long = strategy.position_size > 0
 in_short = strategy.position_size < 0
 
-// ─── ENTRY ─────────────────────────
+// ─── ENTRY (Trade on IBIT) ─────────
 if bull_cross and not in_long
-    strategy.entry("Long", strategy.long)
+    strategy.entry("Long IBIT", strategy.long)
 
 if bear_cross and not in_short
-    strategy.entry("Short", strategy.short)
+    strategy.entry("Short IBIT", strategy.short)
 
 // ─── EXIT ──────────────────────────
 if in_long and exit_long
-    strategy.close("Long")
+    strategy.close("Long IBIT")
 
 if in_short and exit_short
-    strategy.close("Short")
+    strategy.close("Short IBIT")
 
-// ─── PLOTS ─────────────────────────
-plot(ma_entry, "Entry MA", color=color.yellow)
-plot(ma_confirm, "Confirmation MA", color=color.orange)
+// ─── PLOTS (Show BTC MAs on chart) ─
+plot(btc_ma_entry, "BTC Entry MA", color=color.yellow)
+plot(btc_ma_confirm, "BTC Confirm MA", color=color.orange)
