@@ -1,0 +1,38 @@
+//@version=5
+strategy("BTC MA Strategy (Exit on Confirm MA Cross)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+
+// ─── INPUTS ─────────────────────────
+ma_entry_len = input.int(9, "Entry MA Length", minval=1)
+ma_confirm_len = input.int(12, "Confirmation MA Length", minval=1)
+
+// ─── MOVING AVERAGES ────────────────
+ma_entry = ta.sma(close, ma_entry_len)
+ma_confirm = ta.sma(close, ma_confirm_len)
+
+// ─── CROSS CONDITIONS ───────────────
+bull_cross = ta.crossover(ma_entry, ma_confirm)
+bear_cross = ta.crossunder(ma_entry, ma_confirm)
+exit_long = ta.crossunder(close, ma_confirm)
+exit_short = ta.crossover(close, ma_confirm)
+
+// ─── POSITION CONTROL ──────────────
+in_long = strategy.position_size > 0
+in_short = strategy.position_size < 0
+
+// ─── ENTRY ─────────────────────────
+if bull_cross and not in_long
+    strategy.entry("Long", strategy.long)
+
+if bear_cross and not in_short
+    strategy.entry("Short", strategy.short)
+
+// ─── EXIT ──────────────────────────
+if in_long and exit_long
+    strategy.close("Long")
+
+if in_short and exit_short
+    strategy.close("Short")
+
+// ─── PLOTS ─────────────────────────
+plot(ma_entry, "Entry MA", color=color.yellow)
+plot(ma_confirm, "Confirmation MA", color=color.orange)
