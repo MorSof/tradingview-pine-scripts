@@ -1,5 +1,5 @@
 //@version=5
-strategy("BTC MA Strategy (Trading IBIT)", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100)
+strategy("BTC MA Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, initial_capital=30000, commission_type=strategy.commission.cash_per_order, commission_value=1)
 
 // ─── INPUTS ─────────────────────────
 ma_entry_len = input.int(9, "Entry MA Length", minval=1)
@@ -20,19 +20,19 @@ exit_short = ta.crossover(btc_close, btc_ma_confirm)
 in_long = strategy.position_size > 0
 in_short = strategy.position_size < 0
 
-// ─── ENTRY (Trade on IBIT) ─────────
+// ─── ENTRY─────────
 if bull_cross and not in_long
-    strategy.entry("Long IBIT", strategy.long)
+    strategy.entry("Long", strategy.long)
 
 if bear_cross and not in_short
-    strategy.entry("Short IBIT", strategy.short)
+    strategy.entry("Short", strategy.short)
 
 // ─── EXIT ──────────────────────────
 if in_long and exit_long
-    strategy.close("Long IBIT")
+    strategy.close("Long")
 
 if in_short and exit_short
-    strategy.close("Short IBIT")
+    strategy.close("Short")
 
 // ─── PLOTS (Show BTC MAs on chart) ─
 plot(btc_ma_entry, "BTC Entry MA", color=color.yellow)
