@@ -1,0 +1,37 @@
+//@version=5
+strategy("BTC Simple MA Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, initial_capital=30000, commission_type=strategy.commission.cash_per_order, commission_value=1)
+
+// ─── INPUT ─────────────────────────
+ma_len = input.int(12, "MA Length", minval=1)
+
+// ─── BTC DATA ──────────────────────
+btc_symbol = "BINANCE:BTCUSDT"
+btc_close = request.security(btc_symbol, timeframe.period, close)
+btc_ma = ta.sma(btc_close, ma_len)
+
+// ─── CROSS CONDITIONS ──────────────
+bull_cross = ta.crossover(btc_close, btc_ma)
+bear_cross = ta.crossunder(btc_close, btc_ma)
+
+in_long = strategy.position_size > 0
+in_short = strategy.position_size < 0
+
+// ─── ENTRIES ───────────────────────
+if bull_cross
+    strategy.close("Short")
+    strategy.entry("Long", strategy.long)
+
+if bear_cross
+    strategy.close("Long")
+    strategy.entry("Short", strategy.short)
+
+
+// ─── EXITS ─────────────────────────
+if in_long and bear_cross
+    strategy.close("Long")
+
+if in_short and bull_cross
+    strategy.close("Short")
+
+// ─── PLOT MA ───────────────────────
+plot(btc_ma, "BTC MA", color=color.orange)

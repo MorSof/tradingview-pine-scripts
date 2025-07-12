@@ -1,5 +1,5 @@
 //@version=5
-strategy("BTC MA Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, initial_capital=30000, commission_type=strategy.commission.cash_per_order, commission_value=1)
+strategy("BTC 2 MA Strategy", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, initial_capital=30000, commission_type=strategy.commission.cash_per_order, commission_value=1)
 
 // ─── INPUTS ─────────────────────────
 ma_entry_len = input.int(9, "Entry MA Length", minval=1)
